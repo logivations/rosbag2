@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <iomanip>
 
 #include "rcpputils/env.hpp"
 #include "rcpputils/filesystem_helper.hpp"
@@ -108,18 +109,13 @@ void SequentialWriter::open(
   }
 
   rcpputils::fs::path storage_path(storage_options.uri);
-  if (storage_path.is_directory()) {
-    std::stringstream error;
-    error << "Bag directory already exists (" << storage_path.string() <<
-      "), can't overwrite existing bag";
-    throw std::runtime_error{error.str()};
-  }
-
-  bool dir_created = rcpputils::fs::create_directories(storage_path);
-  if (!dir_created) {
-    std::stringstream error;
-    error << "Failed to create bag directory (" << storage_path.string() << ").";
-    throw std::runtime_error{error.str()};
+  if (!storage_path.is_directory()) {
+      bool dir_created = rcpputils::fs::create_directories(storage_path);
+      if (!dir_created) {
+        std::stringstream error;
+        error << "Failed to create bag directory (" << storage_path.string() << ").";
+        throw std::runtime_error{error.str()};
+      }
   }
 
   storage_options_.uri = format_storage_uri(base_folder_, 0);
@@ -283,14 +279,24 @@ void SequentialWriter::remove_topic(const rosbag2_storage::TopicMetadata & topic
 std::string SequentialWriter::format_storage_uri(
   const std::string & base_folder, uint64_t storage_count)
 {
-  // Right now `base_folder_` is always just the folder name for where to install the bagfile.
-  // The name of the folder needs to be queried in case
-  // SequentialWriter is opened with a relative path.
-  std::stringstream storage_file_name;
-  storage_file_name << rcpputils::fs::path(base_folder).filename().string() << "_" << storage_count;
+  // Get the current date and time
+  auto now = std::chrono::system_clock::now();
+  auto now_c = std::chrono::system_clock::to_time_t(now);
 
+  // Format the date and time into a string (e.g., YYYYMMDD_HHMMSS)
+  std::stringstream date_time_stream;
+  date_time_stream << std::put_time(std::localtime(&now_c), "%Y%m%d_%H%M%S");
+
+  // Create the file name with date, time, and storage count
+  std::stringstream storage_file_name;
+  storage_file_name << rcpputils::fs::path(base_folder).filename().string()
+                    << "_" << date_time_stream.str()
+                    << "_" << storage_count;
+
+  // Combine the base folder and the file name
   return (rcpputils::fs::path(base_folder) / storage_file_name.str()).string();
 }
+
 
 void SequentialWriter::switch_to_next_storage()
 {
