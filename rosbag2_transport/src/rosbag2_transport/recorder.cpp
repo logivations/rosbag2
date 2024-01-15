@@ -427,7 +427,16 @@ void RecorderImpl::topics_discovery()
       RCLCPP_INFO(node->get_logger(), "Sim time /clock found, starting recording.");
     }
   }
+   auto start = node->get_clock()->now();
+  // Todo: make this a parameter
+  auto timeout = 60; // seconds
   while (rclcpp::ok() && stop_discovery_ == false) {
+    if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
+      RCLCPP_INFO(
+        node->get_logger(),
+        "Stopping auto-discovery because timeout is reached");
+      return;
+     }
     try {
       auto topics_to_subscribe = get_requested_or_available_topics();
       for (const auto & topic_and_type : topics_to_subscribe) {
