@@ -429,7 +429,7 @@ void RecorderImpl::topics_discovery()
   }
    auto start = node->get_clock()->now();
   // Todo: make this a parameter
-  auto timeout = 60; // seconds
+  auto timeout = 90; // seconds
   while (rclcpp::ok() && stop_discovery_ == false) {
     if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
       RCLCPP_INFO(
