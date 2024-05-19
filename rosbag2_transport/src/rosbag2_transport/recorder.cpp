@@ -44,6 +44,10 @@
 #include "rosbag2_transport/config_options_from_node_params.hpp"
 #include "rosbag2_transport/topic_filter.hpp"
 
+#include "rclcpp/serialization.hpp"
+#include "rclcpp/serialized_message.hpp"
+#include "tf2_msgs/msg/tf_message.hpp"
+
 namespace rosbag2_transport
 {
 
@@ -100,7 +104,7 @@ private:
 
   void subscribe_topic(const rosbag2_storage::TopicMetadata & topic);
 
-  std::shared_ptr<rclcpp::GenericSubscription> create_subscription(
+  std::shared_ptr<rclcpp::SubscriptionBase> create_subscription(
     const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos);
 
   /**
@@ -519,10 +523,29 @@ void RecorderImpl::subscribe_topic(const rosbag2_storage::TopicMetadata & topic)
   }
 }
 
-std::shared_ptr<rclcpp::GenericSubscription>
+std::shared_ptr<rclcpp::SubscriptionBase>
 RecorderImpl::create_subscription(
   const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos)
 {
+ //logthe topic type
+  RCLCPP_INFO_STREAM(node->get_logger(), "Subscribing to topic '" << topic_name << "' with type '" << topic_type << "'");
+
+
+  if(topic_name=="tf" || topic_name=="tf_static"){
+    auto subscription = node->create_subscription<tf2_msgs::msg::TFMessage>(
+      topic_name,
+      qos,
+      [this, topic_name](const tf2_msgs::msg::TFMessage::ConstSharedPtr message) {
+    rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer; //todo capture?
+      rclcpp::SerializedMessage serialized_msg;
+      serializer.serialize_message(message.get(), &serialized_msg);
+        if (!paused_.load()) {
+          writer_->write(serialized_msg, topic_name, "tf2_msgs/msg/TFMessage", node->get_clock()->now());
+        }
+      });
+    return subscription;
+  }
+  else{
   auto subscription = node->create_generic_subscription(
     topic_name,
     topic_type,
@@ -533,6 +556,7 @@ RecorderImpl::create_subscription(
       }
     });
   return subscription;
+    }
 }
 
 std::vector<rclcpp::QoS> RecorderImpl::offered_qos_profiles_for_topic(

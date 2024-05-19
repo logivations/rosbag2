@@ -40,6 +40,7 @@ find_package(rosbag2_storage REQUIRED)
 find_package(rmw_implementation_cmake REQUIRED)
 find_package(shared_queues_vendor REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
+find_package(tf2_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rosbag2_transport/bag_rewrite.cpp
@@ -59,6 +60,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rosbag2_cpp::rosbag2_cpp
   ${rosbag2_interfaces_TARGETS}
   rosbag2_storage::rosbag2_storage
+  ${tf2_msgs_TARGETS}
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
   rcl::rcl
@@ -105,6 +107,7 @@ ament_export_dependencies(
   rosbag2_cpp
   rosbag2_interfaces
   rosbag2_storage
+  tf2_msgs
 )
 
 if(BUILD_TESTING)
