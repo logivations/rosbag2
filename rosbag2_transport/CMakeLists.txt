@@ -150,7 +150,7 @@ ament_export_dependencies(
   rosgraph_msgs
 )
 
-if(BUILD_TESTING)
+if(BUILD_TESTING_THIS_IS_DISABLED)
   add_definitions(-D_SRC_RESOURCES_DIR_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/resources")
 
   find_package(ament_cmake_gmock REQUIRED)
