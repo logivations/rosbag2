@@ -566,23 +566,25 @@ RecorderImpl::create_subscription(
   const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos)
 {
   // Helper macro to create subscription for a specific message type
+  // direct subscription -> zero copy and intra process communication can be used
+  // the writer expects a serialized message, which usually comes directly from DDS
+  // we have to do it manually here
   #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
     if (topic_type == MSG_TYPE_STR) { \
       RCLCPP_INFO_STREAM(node->get_logger(), "Direct subscription to '" << topic_name << "' with type '" << topic_type << "'"); \
+      auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
       auto subscription = node->create_subscription<MSG_TYPE>( \
         topic_name, \
         qos, \
-        [this, topic_name](const MSG_TYPE::ConstSharedPtr message) { \
-          rclcpp::Serialization<MSG_TYPE> serializer; \
+        [this, topic_name, topic_type, serializer](const MSG_TYPE::ConstSharedPtr message) { \
           rclcpp::SerializedMessage serialized_msg; \
-          serializer.serialize_message(message.get(), &serialized_msg); \
+          serializer->serialize_message(message.get(), &serialized_msg); \
           if (!paused_.load()) { \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
         }); \
       return subscription; \
     }
-
   // List of all message types with their corresponding string representations
   CREATE_SUBSCRIPTION(std_msgs::msg::Float64, "std_msgs/msg/Float64")
   CREATE_SUBSCRIPTION(tf2_msgs::msg::TFMessage, "tf2_msgs/msg/TFMessage")
@@ -622,7 +624,7 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(std_msgs::msg::Float32, "std_msgs/msg/Float32")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
-  CREATE_SUBSCRIPTION(std_msgs::msg::Button, "amr_interfaces/msg/Button")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Button, "amr_interfaces/msg/Button")
 
   #undef CREATE_SUBSCRIPTION
 

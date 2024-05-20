@@ -24,6 +24,15 @@
   <depend>yaml_cpp_vendor</depend>
   <depend>keyboard_handler</depend>
   <depend>tf2_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>amr_interfaces</depend>
+  <depend>nav_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
 
   <test_depend>ament_cmake_gmock</test_depend>
   <test_depend>ament_index_cpp</test_depend>
