@@ -81,10 +81,15 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <amr_interfaces/msg/pallets.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <amr_interfaces/msg/button.hpp>
+#include <amr_interfaces/msg/bt_info.hpp>
+#include <ackermann_msgs/msg/ackermann_drive.hpp>
+#include <rosgraph_msgs/msg/clock.hpp>
 
 
 namespace rosbag2_transport
@@ -569,6 +574,7 @@ RecorderImpl::create_subscription(
   // direct subscription -> zero copy and intra process communication can be used
   // the writer expects a serialized message, which usually comes directly from DDS
   // we have to do it manually here
+  // use RCLCPP_INFO(node->get_logger(), "Received message with address: %p", static_cast<const void*>(message.get())); \ to validate
   #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
     if (topic_type == MSG_TYPE_STR) { \
       RCLCPP_INFO_STREAM(node->get_logger(), "Direct subscription to '" << topic_name << "' with type '" << topic_type << "'"); \
@@ -596,6 +602,8 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(visualization_msgs::msg::Marker, "visualization_msgs/msg/Marker")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PolygonStamped, "geometry_msgs/msg/PolygonStamped")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::LaserScan, "sensor_msgs/msg/LaserScan")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::CompressedImage, "sensor_msgs/msg/CompressedImage")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Image, "sensor_msgs/msg/Image")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Proximity, "amr_interfaces/msg/Proximity")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::IntentionalWait, "amr_interfaces/msg/IntentionalWait")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::ScannedBarcodes, "amr_interfaces/msg/ScannedBarcodes")
@@ -625,6 +633,9 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Button, "amr_interfaces/msg/Button")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BtInfo, "amr_interfaces/msg/BtInfo")
+  CREATE_SUBSCRIPTION(ackermann_msgs::msg::AckermannDrive, "ackermann_msgs/msg/AckermannDrive")
+  CREATE_SUBSCRIPTION(rosgraph_msgs::msg::Clock, "rosgraph_msgs/msg/Clock")
 
   #undef CREATE_SUBSCRIPTION
 

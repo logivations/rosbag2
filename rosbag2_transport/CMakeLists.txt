@@ -49,6 +49,8 @@ find_package(visualization_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(ackermann_msgs REQUIRED)
+find_package(rosgraph_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rosbag2_transport/bag_rewrite.cpp
@@ -78,6 +80,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   ${sensor_msgs_TARGETS}
   ${rcl_interfaces_TARGETS}
   ${diagnostic_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${rosgraph_msgs_TARGETS}
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
   rcl::rcl

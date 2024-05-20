@@ -32,7 +32,9 @@
   <depend>visualization_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>rcl_interfaces</depend>
+  <depend>ackermann_msgs</depend>
   <depend>diagnostic_msgs</depend>
+  <depend>rosgraph_msgs</depend>
 
   <test_depend>ament_cmake_gmock</test_depend>
   <test_depend>ament_index_cpp</test_depend>
