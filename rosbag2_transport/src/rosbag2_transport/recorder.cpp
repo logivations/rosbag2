@@ -87,6 +87,7 @@
 #include <amr_interfaces/msg/pallets.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <amr_interfaces/msg/button.hpp>
+#include <amr_interfaces/msg/barcode_array.hpp>
 #include <amr_interfaces/msg/bt_info.hpp>
 #include <ackermann_msgs/msg/ackermann_drive.hpp>
 #include <rosgraph_msgs/msg/clock.hpp>
@@ -633,6 +634,7 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Button, "amr_interfaces/msg/Button")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BarcodeArray, "amr_interfaces/msg/BarcodeArray")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::BtInfo, "amr_interfaces/msg/BtInfo")
   CREATE_SUBSCRIPTION(ackermann_msgs::msg::AckermannDrive, "ackermann_msgs/msg/AckermannDrive")
   CREATE_SUBSCRIPTION(rosgraph_msgs::msg::Clock, "rosgraph_msgs/msg/Clock")
