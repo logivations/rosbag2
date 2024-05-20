@@ -47,6 +47,45 @@
 #include "rclcpp/serialization.hpp"
 #include "rclcpp/serialized_message.hpp"
 #include "tf2_msgs/msg/tf_message.hpp"
+#include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <nav2_msgs/msg/speed_limit.hpp>
+#include <amr_interfaces/msg/flexi_soft_errors.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <amr_interfaces/msg/proximity.hpp>
+#include <amr_interfaces/msg/intentional_wait.hpp>
+#include <amr_interfaces/msg/scanned_barcodes.hpp>
+#include <amr_interfaces/msg/lidar_status.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
+#include <rcl_interfaces/msg/log.hpp>
+#include <amr_interfaces/msg/blackboard_info.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <amr_interfaces/msg/laser_scanner_field_set.hpp>
+#include <sensor_msgs/msg/joy.hpp>
+#include <nav2_msgs/msg/polygons_array.hpp>
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <nav2_msgs/msg/behavior_tree_log.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <amr_interfaces/msg/amr_battery_state.hpp>
+#include <nav2_msgs/msg/collision_monitor_state.hpp>
+#include <nav2_msgs/msg/collision_detector_state.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <amr_interfaces/msg/amr_error.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/u_int8.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <amr_interfaces/msg/pallets.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
+#include <amr_interfaces/msg/button.hpp>
+
 
 namespace rosbag2_transport
 {
@@ -522,30 +561,73 @@ void RecorderImpl::subscribe_topic(const rosbag2_storage::TopicMetadata & topic)
     subscriptions_.erase(topic.name);
   }
 }
-
 std::shared_ptr<rclcpp::SubscriptionBase>
 RecorderImpl::create_subscription(
   const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos)
 {
- //logthe topic type
-  RCLCPP_INFO_STREAM(node->get_logger(), "Subscribing to topic '" << topic_name << "' with type '" << topic_type << "'");
+  // Helper macro to create subscription for a specific message type
+  #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
+    if (topic_type == MSG_TYPE_STR) { \
+      RCLCPP_INFO_STREAM(node->get_logger(), "Direct subscription to '" << topic_name << "' with type '" << topic_type << "'"); \
+      auto subscription = node->create_subscription<MSG_TYPE>( \
+        topic_name, \
+        qos, \
+        [this, topic_name](const MSG_TYPE::ConstSharedPtr message) { \
+          rclcpp::Serialization<MSG_TYPE> serializer; \
+          rclcpp::SerializedMessage serialized_msg; \
+          serializer.serialize_message(message.get(), &serialized_msg); \
+          if (!paused_.load()) { \
+            writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
+          } \
+        }); \
+      return subscription; \
+    }
 
+  // List of all message types with their corresponding string representations
+  CREATE_SUBSCRIPTION(std_msgs::msg::Float64, "std_msgs/msg/Float64")
+  CREATE_SUBSCRIPTION(tf2_msgs::msg::TFMessage, "tf2_msgs/msg/TFMessage")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::Twist, "geometry_msgs/msg/Twist")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::SpeedLimit, "nav2_msgs/msg/SpeedLimit")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::FlexiSoftErrors, "amr_interfaces/msg/FlexiSoftErrors")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::Path, "nav_msgs/msg/Path")
+  CREATE_SUBSCRIPTION(std_msgs::msg::String, "std_msgs/msg/String")
+  CREATE_SUBSCRIPTION(visualization_msgs::msg::Marker, "visualization_msgs/msg/Marker")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PolygonStamped, "geometry_msgs/msg/PolygonStamped")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::LaserScan, "sensor_msgs/msg/LaserScan")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Proximity, "amr_interfaces/msg/Proximity")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::IntentionalWait, "amr_interfaces/msg/IntentionalWait")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::ScannedBarcodes, "amr_interfaces/msg/ScannedBarcodes")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::LidarStatus, "amr_interfaces/msg/LidarStatus")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::OccupancyGrid, "nav_msgs/msg/OccupancyGrid")
+  CREATE_SUBSCRIPTION(rcl_interfaces::msg::Log, "rcl_interfaces/msg/Log")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BlackboardInfo, "amr_interfaces/msg/BlackboardInfo")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::Odometry, "nav_msgs/msg/Odometry")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseStamped, "geometry_msgs/msg/PoseStamped")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::LaserScannerFieldSet, "amr_interfaces/msg/LaserScannerFieldSet")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Joy, "sensor_msgs/msg/Joy")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::PolygonsArray, "nav2_msgs/msg/PolygonsArray")
+  CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticStatus, "diagnostic_msgs/msg/DiagnosticStatus")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::BehaviorTreeLog, "nav2_msgs/msg/BehaviorTreeLog")
+  CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticArray, "diagnostic_msgs/msg/DiagnosticArray")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryState, "amr_interfaces/msg/AmrBatteryState")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionMonitorState, "nav2_msgs/msg/CollisionMonitorState")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionDetectorState, "nav2_msgs/msg/CollisionDetectorState")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::JointState, "sensor_msgs/msg/JointState")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrError, "amr_interfaces/msg/AmrError")
+  CREATE_SUBSCRIPTION(std_msgs::msg::Bool, "std_msgs/msg/Bool")
+  CREATE_SUBSCRIPTION(std_msgs::msg::UInt8, "std_msgs/msg/UInt8")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseArray, "geometry_msgs/msg/PoseArray")
+  CREATE_SUBSCRIPTION(visualization_msgs::msg::MarkerArray, "visualization_msgs/msg/MarkerArray")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::PointCloud2, "sensor_msgs/msg/PointCloud2")
+  CREATE_SUBSCRIPTION(std_msgs::msg::Float32, "std_msgs/msg/Float32")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
+  CREATE_SUBSCRIPTION(std_msgs::msg::Button, "amr_interfaces/msg/Button")
 
-  if(topic_name=="tf" || topic_name=="tf_static"){
-    auto subscription = node->create_subscription<tf2_msgs::msg::TFMessage>(
-      topic_name,
-      qos,
-      [this, topic_name](const tf2_msgs::msg::TFMessage::ConstSharedPtr message) {
-    rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer; //todo capture?
-      rclcpp::SerializedMessage serialized_msg;
-      serializer.serialize_message(message.get(), &serialized_msg);
-        if (!paused_.load()) {
-          writer_->write(serialized_msg, topic_name, "tf2_msgs/msg/TFMessage", node->get_clock()->now());
-        }
-      });
-    return subscription;
-  }
-  else{
+  #undef CREATE_SUBSCRIPTION
+
+  // Fallback generic subscription
+  RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
   auto subscription = node->create_generic_subscription(
     topic_name,
     topic_type,
@@ -556,8 +638,8 @@ RecorderImpl::create_subscription(
       }
     });
   return subscription;
-    }
 }
+
 
 std::vector<rclcpp::QoS> RecorderImpl::offered_qos_profiles_for_topic(
   const std::vector<rclcpp::TopicEndpointInfo> & topics_endpoint_info) const

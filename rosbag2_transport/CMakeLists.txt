@@ -25,7 +25,6 @@ endif()
 if(WIN32)
   add_definitions(-DNOMINMAX)
 endif()
-
 find_package(ament_cmake_ros REQUIRED)
 find_package(keyboard_handler REQUIRED)
 find_package(rcl REQUIRED)
@@ -41,6 +40,15 @@ find_package(rmw_implementation_cmake REQUIRED)
 find_package(shared_queues_vendor REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
 find_package(tf2_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(amr_interfaces REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rosbag2_transport/bag_rewrite.cpp
@@ -61,6 +69,15 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   ${rosbag2_interfaces_TARGETS}
   rosbag2_storage::rosbag2_storage
   ${tf2_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav2_msgs_TARGETS}
+  ${amr_interfaces_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${rcl_interfaces_TARGETS}
+  ${diagnostic_msgs_TARGETS}
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
   rcl::rcl
