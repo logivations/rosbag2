@@ -129,6 +129,25 @@ ament_export_dependencies(
   rosbag2_interfaces
   rosbag2_storage
   tf2_msgs
+  keyboard_handler
+  rcl
+  rclcpp_components
+  rcutils
+  rmw
+  rosbag2_compression
+  shared_queues_vendor
+  yaml_cpp_vendor
+  std_msgs
+  geometry_msgs
+  nav2_msgs
+  amr_interfaces
+  nav_msgs
+  visualization_msgs
+  sensor_msgs
+  rcl_interfaces
+  diagnostic_msgs
+  ackermann_msgs
+  rosgraph_msgs
 )
 
 if(BUILD_TESTING)
