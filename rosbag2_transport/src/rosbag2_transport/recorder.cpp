@@ -65,6 +65,7 @@
 #include <amr_interfaces/msg/blackboard_info.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <amr_interfaces/msg/laser_scanner_field_set.hpp>
 #include <sensor_msgs/msg/joy.hpp>
 #include <nav2_msgs/msg/polygons_array.hpp>
@@ -78,16 +79,20 @@
 #include <amr_interfaces/msg/amr_error.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <std_msgs/msg/u_int16.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <amr_interfaces/msg/pallets.hpp>
+#include <amr_interfaces/msg/hydraulics_state.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <amr_interfaces/msg/button.hpp>
 #include <amr_interfaces/msg/barcode_array.hpp>
+#include <amr_interfaces/msg/amr_battery_state_array.hpp>
 #include <amr_interfaces/msg/bt_info.hpp>
 #include <ackermann_msgs/msg/ackermann_drive.hpp>
 #include <rosgraph_msgs/msg/clock.hpp>
@@ -602,6 +607,7 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(sensor_msgs::msg::LaserScan, "sensor_msgs/msg/LaserScan")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::CompressedImage, "sensor_msgs/msg/CompressedImage")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::Image, "sensor_msgs/msg/Image")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Imu, "sensor_msgs/msg/Imu")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Proximity, "amr_interfaces/msg/Proximity")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::IntentionalWait, "amr_interfaces/msg/IntentionalWait")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::ScannedBarcodes, "amr_interfaces/msg/ScannedBarcodes")
@@ -611,6 +617,7 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(amr_interfaces::msg::BlackboardInfo, "amr_interfaces/msg/BlackboardInfo")
   CREATE_SUBSCRIPTION(nav_msgs::msg::Odometry, "nav_msgs/msg/Odometry")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseStamped, "geometry_msgs/msg/PoseStamped")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseWithCovarianceStamped, "geometry_msgs/msg/PoseWithCovarianceStamped")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::LaserScannerFieldSet, "amr_interfaces/msg/LaserScannerFieldSet")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::Joy, "sensor_msgs/msg/Joy")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::PolygonsArray, "nav2_msgs/msg/PolygonsArray")
@@ -618,17 +625,20 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(nav2_msgs::msg::BehaviorTreeLog, "nav2_msgs/msg/BehaviorTreeLog")
   CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticArray, "diagnostic_msgs/msg/DiagnosticArray")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryState, "amr_interfaces/msg/AmrBatteryState")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryStateArray, "amr_interfaces/msg/AmrBatteryStateArray")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionMonitorState, "nav2_msgs/msg/CollisionMonitorState")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionDetectorState, "nav2_msgs/msg/CollisionDetectorState")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::JointState, "sensor_msgs/msg/JointState")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrError, "amr_interfaces/msg/AmrError")
   CREATE_SUBSCRIPTION(std_msgs::msg::Bool, "std_msgs/msg/Bool")
   CREATE_SUBSCRIPTION(std_msgs::msg::UInt8, "std_msgs/msg/UInt8")
+  CREATE_SUBSCRIPTION(std_msgs::msg::UInt16, "std_msgs/msg/UInt16")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseArray, "geometry_msgs/msg/PoseArray")
   CREATE_SUBSCRIPTION(visualization_msgs::msg::MarkerArray, "visualization_msgs/msg/MarkerArray")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::PointCloud2, "sensor_msgs/msg/PointCloud2")
   CREATE_SUBSCRIPTION(std_msgs::msg::Float32, "std_msgs/msg/Float32")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::HydraulicsState, "amr_interfaces/msg/HydraulicsState")
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::Button, "amr_interfaces/msg/Button")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::BarcodeArray, "amr_interfaces/msg/BarcodeArray")
