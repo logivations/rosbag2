@@ -486,6 +486,13 @@ void RecorderImpl::topics_discovery()
   auto timeout = 90; // seconds
   while (rclcpp::ok() && stop_discovery_ == false) {
     if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
+    /* while not all topics from the topic whitelist are matched, rosbag recorder will check in some interval
+       for the remaining topics.
+       I suppose that due to the distributed nature of ROS2 DDS, this has to connect to all nodes and fetch all their topics.
+       It is thus very CPU-intensive (1 second, 100% of a CPU)
+       While this is not a problem if the whitelist exactly matches the available topics, this creates a maintenance risk:
+       as soon as a topic from the whitelist is removed, these spikes will occur.
+       So, as a compromise, stop discovery after some timeout */
       RCLCPP_INFO(
         node->get_logger(),
         "Stopping auto-discovery because timeout is reached");
