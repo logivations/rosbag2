@@ -495,7 +495,7 @@ void RecorderImpl::topics_discovery()
        So, as a compromise, stop discovery after some timeout */
       RCLCPP_INFO(
         node->get_logger(),
-        "Stopping auto-discovery because timeout is reached");
+        "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
       return;
      }
     try {
