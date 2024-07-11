@@ -483,7 +483,7 @@ void RecorderImpl::topics_discovery()
   }
    auto start = node->get_clock()->now();
   // Todo: make this a parameter
-  auto timeout = 90; // seconds
+  auto timeout = record_options_.timeout_for_delay; // seconds
   while (rclcpp::ok() && stop_discovery_ == false) {
     if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
     /* while not all topics from the topic whitelist are matched, rosbag recorder will check in some interval
@@ -495,7 +495,7 @@ void RecorderImpl::topics_discovery()
        So, as a compromise, stop discovery after some timeout */
       RCLCPP_INFO(
         node->get_logger(),
-        "Stopping auto-discovery because timeout is reached");
+        "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
       return;
      }
     try {
