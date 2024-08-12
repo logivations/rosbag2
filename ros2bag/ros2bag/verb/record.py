@@ -120,6 +120,9 @@ class RecordVerb(VerbExtension):
         parser.add_argument(
             '--qos-profile-overrides-path', type=FileType('r'),
             help='Path to a yaml file defining overrides of the QoS profile for specific topics.')
+        parser.add_argument(
+            '--timeout-for-delay', type=int, default=90,
+            help='Timeout to stop auto-discovery. By default %(default)d seconds.')
 
         # Core config
         parser.add_argument(
