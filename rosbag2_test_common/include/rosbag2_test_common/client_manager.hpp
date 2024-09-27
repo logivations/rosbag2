@@ -15,14 +15,15 @@
 #ifndef ROSBAG2_TEST_COMMON__CLIENT_MANAGER_HPP_
 #define ROSBAG2_TEST_COMMON__CLIENT_MANAGER_HPP_
 
+#include <chrono>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "rcl/service_introspection.h"
 
 #include "rclcpp/rclcpp.hpp"  // rclcpp must be included before the Windows specific includes.
-
 
 namespace rosbag2_test_common
 {
@@ -32,17 +33,18 @@ class ClientManager : public rclcpp::Node
 public:
   explicit ClientManager(
     std::string service_name,
-    size_t client_number = 1,
+    size_t number_of_clients = 1,
     bool service_event_contents = false,
     bool client_event_contents = true)
   : Node("service_client_manager_" + std::to_string(rclcpp::Clock().now().nanoseconds()),
       rclcpp::NodeOptions().start_parameter_services(false).start_parameter_event_publisher(
         false).enable_rosout(false)),
-    service_name_(service_name),
-    client_number_(client_number),
+    service_name_(std::move(service_name)),
+    number_of_clients_(number_of_clients),
     enable_service_event_contents_(service_event_contents),
     enable_client_event_contents_(client_event_contents)
   {
+    // *INDENT-OFF*
     auto do_nothing_srv_callback =
       [this](const std::shared_ptr<rmw_request_id_t> request_header,
         const std::shared_ptr<typename ServiceT::Request> request,
@@ -53,6 +55,7 @@ public:
         (void)request;
         (void)response;
       };
+    // *INDENT-ON*
 
     service_ = create_service<ServiceT>(service_name_, do_nothing_srv_callback);
 
@@ -71,7 +74,7 @@ public:
       introspection_state = RCL_SERVICE_INTROSPECTION_OFF;
     }
 
-    for (size_t i = 0; i < client_number_; i++) {
+    for (size_t i = 0; i < number_of_clients_; i++) {
       auto client = create_client<ServiceT>(service_name_);
       client->configure_introspection(
         get_clock(), rclcpp::SystemDefaultsQoS(), introspection_state);
@@ -89,7 +92,7 @@ public:
     return true;
   }
 
-  bool wait_for_srvice_to_be_ready(std::chrono::duration<double> timeout = std::chrono::seconds(5))
+  bool wait_for_service_to_be_ready(std::chrono::duration<double> timeout = std::chrono::seconds(5))
   {
     using clock = std::chrono::system_clock;
     auto start = clock::now();
@@ -112,8 +115,7 @@ public:
       if (rclcpp::executors::spin_node_until_future_complete(
           exec_, get_node_base_interface(), result, timeout) != rclcpp::FutureReturnCode::SUCCESS)
       {
-        RCLCPP_INFO(
-          rclcpp::get_logger("service_client_manager"), "Failed to get response !");
+        RCLCPP_INFO(this->get_logger(), "Failed to get response !");
         return false;
       }
     }
@@ -127,7 +129,7 @@ private:
   typename rclcpp::Service<ServiceT>::SharedPtr service_;
   std::vector<client_shared_ptr> clients_;
   const std::string service_name_;
-  size_t client_number_;
+  size_t number_of_clients_;
   bool enable_service_event_contents_;
   bool enable_client_event_contents_;
 };

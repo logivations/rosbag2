@@ -31,8 +31,11 @@ Node convert<rosbag2_transport::PlayOptions>::encode(
   node["node_prefix"] = play_options.node_prefix;
   node["rate"] = play_options.rate;
   node["topics_to_filter"] = play_options.topics_to_filter;
-  node["topics_regex_to_filter"] = play_options.topics_regex_to_filter;
-  node["topics_regex_to_exclude"] = play_options.topics_regex_to_exclude;
+  node["services_to_filter"] = play_options.services_to_filter;
+  node["regex_to_filter"] = play_options.regex_to_filter;
+  node["exclude_regex_to_filter"] = play_options.exclude_regex_to_filter;
+  node["exclude_topics"] = play_options.exclude_topics_to_filter;
+  node["exclude_services"] = play_options.exclude_services_to_filter;
   node["topic_qos_profile_overrides"] =
     YAML::convert<std::unordered_map<std::string, rclcpp::QoS>>::encode(
     play_options.topic_qos_profile_overrides);
@@ -62,14 +65,21 @@ Node convert<rosbag2_transport::PlayOptions>::encode(
 bool convert<rosbag2_transport::PlayOptions>::decode(
   const Node & node, rosbag2_transport::PlayOptions & play_options)
 {
-  optional_assign<uint64_t>(node, "read_ahead_queue_size", play_options.read_ahead_queue_size);
+  optional_assign<size_t>(node, "read_ahead_queue_size", play_options.read_ahead_queue_size);
   optional_assign<std::string>(node, "node_prefix", play_options.node_prefix);
   optional_assign<float>(node, "rate", play_options.rate);
   optional_assign<std::vector<std::string>>(
     node, "topics_to_filter", play_options.topics_to_filter);
-  optional_assign<std::string>(node, "topics_regex_to_filter", play_options.topics_regex_to_filter);
+  optional_assign<std::vector<std::string>>(
+    node, "services_to_filter", play_options.services_to_filter);
+  optional_assign<std::string>(node, "regex_to_filter", play_options.regex_to_filter);
   optional_assign<std::string>(
-    node, "topics_regex_to_exclude", play_options.topics_regex_to_exclude);
+    node, "exclude_regex_to_filter",
+    play_options.exclude_regex_to_filter);
+  optional_assign<std::vector<std::string>>(
+    node, "exclude_topics", play_options.exclude_topics_to_filter);
+  optional_assign<std::vector<std::string>>(
+    node, "exclude_services", play_options.exclude_services_to_filter);
 
   optional_assign<std::unordered_map<std::string, rclcpp::QoS>>(
     node, "topic_qos_profile_overrides", play_options.topic_qos_profile_overrides);

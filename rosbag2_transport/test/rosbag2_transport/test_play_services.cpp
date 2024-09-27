@@ -106,6 +106,12 @@ public:
     ASSERT_TRUE(cli_stop_->wait_for_service(service_wait_timeout_));
   }
 
+  void TearDown() override
+  {
+    // Gracefully stop player before calling rclcpp::shutdown() in destructor
+    player_->stop();
+  }
+
   /// Call a service client, and expect it to successfully return within a reasonable timeout
   template<typename Srv>
   typename Srv::Response::SharedPtr successful_call(
@@ -196,7 +202,7 @@ private:
     message->int32_value = 42;
 
     auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-      {test_topic_, "test_msgs/BasicTypes", "", {}, ""},
+      {1u, test_topic_, "test_msgs/BasicTypes", "", {}, ""},
     };
     std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages;
     for (size_t i = 0; i < num_msgs_to_publish_; i++) {

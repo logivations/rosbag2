@@ -2,6 +2,39 @@
 Changelog for package rosbag2_storage_mcap
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.29.0 (2024-09-03)
+-------------------
+
+0.28.0 (2024-06-17)
+-------------------
+* Add vscode gitignore rule and remove vscode folder (`#1698 <https://github.com/ros2/rosbag2/issues/1698>`_)
+* Contributors: methylDragon
+
+0.27.0 (2024-04-30)
+-------------------
+
+0.26.1 (2024-04-17)
+-------------------
+
+0.26.0 (2024-04-16)
+-------------------
+* Support service 2/2 --- rosbag2 service play (`#1481 <https://github.com/ros2/rosbag2/issues/1481>`_)
+* Use middleware send and receive timestamps from message_info during recording (`#1531 <https://github.com/ros2/rosbag2/issues/1531>`_)
+* Update to use yaml-cpp version 0.8.0. (`#1605 <https://github.com/ros2/rosbag2/issues/1605>`_)
+* Check existence of a file before passing it to the mcap reader (`#1594 <https://github.com/ros2/rosbag2/issues/1594>`_)
+* Contributors: Barry Xu, Chris Lalancette, Christopher Wecht, jmachowinski, Michael Orlov
+
+0.25.0 (2024-03-27)
+-------------------
+* Add topic_id returned by storage to the TopicMetadata (`#1538 <https://github.com/ros2/rosbag2/issues/1538>`_)
+* Use rw_lock to protect mcap metadata lists. (`#1561 <https://github.com/ros2/rosbag2/issues/1561>`_)
+* Remove rcpputils::fs dependencies from rosbag2_storages (`#1558 <https://github.com/ros2/rosbag2/issues/1558>`_)
+* remove unused headers (`#1544 <https://github.com/ros2/rosbag2/issues/1544>`_)
+* Link and compile against rosbag2_storage_mcap: Fixed issue 1492 (`#1496 <https://github.com/ros2/rosbag2/issues/1496>`_)
+* Use enum values for offered_qos_profiles in code and string names in serialized metadata (`#1476 <https://github.com/ros2/rosbag2/issues/1476>`_)
+* Store serialized metadata in MCAP file (`#1423 <https://github.com/ros2/rosbag2/issues/1423>`_)
+* Contributors: Alejandro Hernández Cordero, Michael Orlov, Patrick Roncagliolo, Roman Sokolkov, Tomoya Fujita, uupks
+
 0.24.0 (2023-07-11)
 -------------------
 * Implement storing and loading ROS_DISTRO from metadata.yaml and mcap files (`#1241 <https://github.com/ros2/rosbag2/issues/1241>`_)

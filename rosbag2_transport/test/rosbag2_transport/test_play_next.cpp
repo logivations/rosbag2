@@ -35,7 +35,7 @@ TEST_F(RosBag2PlayTestFixture, play_next_with_false_preconditions) {
   primitive_message->int32_value = 42;
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""}};
+    {1u, "topic1", "test_msgs/BasicTypes", "", {}, ""}};
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {serialize_test_message("topic1", 2100, primitive_message)};
@@ -56,7 +56,7 @@ TEST_F(RosBag2PlayTestFixture, play_next_playing_all_messages_without_delays) {
   primitive_message->int32_value = 42;
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""}};
+    {1u, "topic1", "test_msgs/BasicTypes", "", {}, ""}};
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {
@@ -110,7 +110,7 @@ TEST_F(RosBag2PlayTestFixture, play_next_playing_one_by_one_messages_with_the_sa
   primitive_message->int32_value = 42;
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""}};
+    {1u, "topic1", "test_msgs/BasicTypes", "", {}, ""}};
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {
@@ -163,7 +163,7 @@ TEST_F(RosBag2PlayTestFixture, play_respect_messages_timing_after_play_next) {
   primitive_message->int32_value = 42;
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""}};
+    {1u, "topic1", "test_msgs/BasicTypes", "", {}, ""}};
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {
@@ -202,7 +202,7 @@ TEST_F(RosBag2PlayTestFixture, play_respect_messages_timing_after_play_next) {
   auto replay_time = std::chrono::steady_clock::now() - start;
 
   auto expected_replay_time =
-    std::chrono::nanoseconds(messages.back()->time_stamp - messages[1]->time_stamp);
+    std::chrono::nanoseconds(messages.back()->recv_timestamp - messages[1]->recv_timestamp);
   // Check for lower bound with some tolerance
   ASSERT_THAT(replay_time, Gt(expected_replay_time - std::chrono::milliseconds(50)));
   // Check for upper bound with some tolerance
@@ -218,7 +218,7 @@ TEST_F(RosBag2PlayTestFixture, player_can_resume_after_play_next) {
   primitive_message->int32_value = 42;
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""}};
+    {1u, "topic1", "test_msgs/BasicTypes", "", {}, ""}};
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {
@@ -266,18 +266,18 @@ TEST_F(RosBag2PlayTestFixture, play_next_playing_only_filtered_topics) {
   complex_message1->bool_values = {{true, false, true}};
 
   auto topic_types = std::vector<rosbag2_storage::TopicMetadata>{
-    {"topic1", "test_msgs/BasicTypes", "", {}, ""},
-    {"topic2", "test_msgs/Arrays", "", {}, ""},
+    {1u, "/topic1", "test_msgs/BasicTypes", "", {}, ""},
+    {2u, "/topic2", "test_msgs/Arrays", "", {}, ""},
   };
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {
-    serialize_test_message("topic1", 500, primitive_message1),
-    serialize_test_message("topic1", 700, primitive_message1),
-    serialize_test_message("topic1", 900, primitive_message1),
-    serialize_test_message("topic2", 550, complex_message1),
-    serialize_test_message("topic2", 750, complex_message1),
-    serialize_test_message("topic2", 950, complex_message1)
+    serialize_test_message("/topic1", 500, primitive_message1),
+    serialize_test_message("/topic1", 700, primitive_message1),
+    serialize_test_message("/topic1", 900, primitive_message1),
+    serialize_test_message("/topic2", 550, complex_message1),
+    serialize_test_message("/topic2", 750, complex_message1),
+    serialize_test_message("/topic2", 950, complex_message1)
   };
 
   // Filter allows /topic2, blocks /topic1
