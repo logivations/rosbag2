@@ -29,24 +29,15 @@ class ServiceManager
 {
 public:
   ServiceManager()
-  : service_node_(std::make_shared<rclcpp::Node>(
+  : pub_node_(std::make_shared<rclcpp::Node>(
         "service_manager_" + std::to_string(rclcpp::Clock().now().nanoseconds()),
-        rclcpp::NodeOptions()
-        .start_parameter_event_publisher(false)
-        .enable_rosout(false)
-        .start_parameter_services(false))),
-    check_service_ready_node_(std::make_shared<rclcpp::Node>(
-        "check_service_ready_node_" + std::to_string(rclcpp::Clock().now().nanoseconds()),
-        rclcpp::NodeOptions()
-        .start_parameter_event_publisher(false)
-        .enable_rosout(false)
-        .start_parameter_services(false)))
+        rclcpp::NodeOptions().start_parameter_event_publisher(false).enable_rosout(false)))
   {
   }
 
   ~ServiceManager()
   {
-    exec_.cancel();
+    exit_ = true;
     if (thread_.joinable()) {
       thread_.join();
     }
@@ -66,40 +57,31 @@ public:
         requests.emplace_back(request);
       };
 
-    auto service = service_node_->create_service<ServiceT>(
+    auto service = pub_node_->create_service<ServiceT>(
       service_name, std::forward<decltype(callback)>(callback));
     services_.emplace(service_name, service);
-
-    auto client = check_service_ready_node_->create_client<ServiceT>(service_name);
-    clients_.emplace_back(client);
   }
 
   void run_services()
   {
-    exec_.add_node(service_node_);
-    thread_ = std::thread(
-      [this]() {
-        exec_.spin();
-      });
-  }
+    auto spin = [this]() {
+        rclcpp::executors::SingleThreadedExecutor exec;
+        exec.add_node(pub_node_);
 
-  bool all_services_ready()
-  {
-    for (auto client : clients_) {
-      if (!client->wait_for_service(std::chrono::seconds(2))) {
-        return false;
-      }
-    }
-    return true;
+        while (!exit_) {
+          exec.spin_some();
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+      };
+
+    thread_ = std::thread(spin);
   }
 
 private:
-  std::shared_ptr<rclcpp::Node> service_node_;
-  std::shared_ptr<rclcpp::Node> check_service_ready_node_;
+  std::shared_ptr<rclcpp::Node> pub_node_;
   std::unordered_map<std::string, typename rclcpp::ServiceBase::SharedPtr> services_;
-  std::vector<typename rclcpp::ClientBase::SharedPtr> clients_;
+  bool exit_ = false;
   std::thread thread_;
-  rclcpp::executors::SingleThreadedExecutor exec_;
 };
 
 }  // namespace rosbag2_test_common

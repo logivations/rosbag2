@@ -23,7 +23,8 @@
 #include <vector>
 
 #include "logging.hpp"
-#include "rcutils/types/rcutils_ret.h"
+
+#include "rcpputils/filesystem_helper.hpp"
 
 namespace rosbag2_compression_zstd
 {

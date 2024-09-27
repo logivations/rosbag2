@@ -20,7 +20,6 @@
 
 #include "rosbag2_cpp/converter_interfaces/serialization_format_serializer.hpp"
 #include "rosbag2_cpp/converter_interfaces/serialization_format_deserializer.hpp"
-#include "rosbag2_cpp/visibility_control.hpp"
 
 /**
  * This is a convenience class for plugin developers.
@@ -32,7 +31,7 @@ namespace rosbag2_cpp
 namespace converter_interfaces
 {
 
-class ROSBAG2_CPP_PUBLIC SerializationFormatConverter
+class SerializationFormatConverter
   : public SerializationFormatSerializer, public SerializationFormatDeserializer
 {
 public:

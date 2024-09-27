@@ -15,18 +15,15 @@
 #ifndef ROSBAG2_CPP__SERVICE_UTILS_HPP_
 #define ROSBAG2_CPP__SERVICE_UTILS_HPP_
 
-#include <array>
 #include <string>
 
 #include "rosbag2_cpp/visibility_control.hpp"
-
-#include "service_msgs/msg/service_event_info.hpp"
 
 namespace rosbag2_cpp
 {
 ROSBAG2_CPP_PUBLIC
 bool
-is_service_event_topic(const std::string & topic_name, const std::string & topic_type);
+is_service_event_topic(const std::string & topic, const std::string & topic_type);
 
 // Call this function after is_service_event_topic() return true
 ROSBAG2_CPP_PUBLIC
@@ -39,20 +36,12 @@ std::string
 service_event_topic_type_to_service_type(const std::string & topic_type);
 
 ROSBAG2_CPP_PUBLIC
-std::string
-service_name_to_service_event_topic_name(const std::string & service_name);
+size_t
+get_serialization_size_for_service_metadata_event();
 
 ROSBAG2_CPP_PUBLIC
 std::string
-client_id_to_string(std::array<uint8_t, 16> & client_id);
-
-struct client_id_hash
-{
-  static_assert(
-    std::is_same<std::array<uint8_t, 16>,
-    service_msgs::msg::ServiceEventInfo::_client_gid_type>::value);
-  std::size_t operator()(const std::array<uint8_t, 16> & client_id) const;
-};
+service_name_to_service_event_topic_name(const std::string & service_name);
 }  // namespace rosbag2_cpp
 
 #endif  // ROSBAG2_CPP__SERVICE_UTILS_HPP_

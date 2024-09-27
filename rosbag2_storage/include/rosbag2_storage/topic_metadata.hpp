@@ -24,7 +24,6 @@ namespace rosbag2_storage
 
 struct TopicMetadata
 {
-  uint16_t id = 0;  // Topic id returned by storage
   std::string name;
   std::string type;
   std::string serialization_format;
@@ -34,8 +33,7 @@ struct TopicMetadata
 
   bool operator==(const rosbag2_storage::TopicMetadata & rhs) const
   {
-    return id == rhs.id &&
-           name == rhs.name &&
+    return name == rhs.name &&
            type == rhs.type &&
            serialization_format == rhs.serialization_format &&
            type_description_hash == rhs.type_description_hash;

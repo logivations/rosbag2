@@ -23,7 +23,6 @@
 #include <gmock/gmock.h>
 
 #include <algorithm>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
@@ -31,6 +30,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rcpputils/asserts.hpp"
+#include "rcpputils/filesystem_helper.hpp"
 
 #include "rosbag2_cpp/readers/sequential_reader.hpp"
 #include "rosbag2_cpp/reindexer.hpp"
@@ -49,7 +49,6 @@
 using namespace testing;  // NOLINT
 using namespace rosbag2_test_common;  // NOLINT
 
-namespace fs = std::filesystem;
 
 class ReindexTestFixture : public ParametrizedTemporaryDirectoryFixture
 {
@@ -57,12 +56,12 @@ public:
   void SetUp() override
   {
     auto bag_name = get_test_name() + "_" + GetParam();
-    root_bag_path_ = fs::path(temporary_dir_path_) / bag_name;
+    root_bag_path_ = rcpputils::fs::path(temporary_dir_path_) / bag_name;
   }
 
   void TearDown() override
   {
-    fs::remove_all(root_bag_path_);
+    rcpputils::fs::remove_all(root_bag_path_);
   }
 
   std::string get_test_name() const
@@ -81,7 +80,6 @@ public:
       rosbag2_storage::StorageOptions storage_options;
       storage_options.storage_id = GetParam();
       storage_options.uri = root_bag_path_.string();
-      storage_options.custom_data["name"] = "value";
       writer.open(storage_options);
       rosbag2_storage::TopicMetadata topic;
       topic.name = "/test_topic";
@@ -106,11 +104,11 @@ public:
     }
 
     rosbag2_storage::MetadataIo metadata_io;
-    original_metadata_ = metadata_io.read_metadata(root_bag_path_.generic_string());
-    fs::remove(root_bag_path_ / "metadata.yaml");
+    original_metadata_ = metadata_io.read_metadata(root_bag_path_.string());
+    rcpputils::fs::remove(root_bag_path_ / "metadata.yaml");
   }
 
-  fs::path root_bag_path_;
+  rcpputils::fs::path root_bag_path_;
   rosbag2_storage::BagMetadata original_metadata_;
 };
 
@@ -133,8 +131,6 @@ TEST_P(ReindexTestFixture, test_multiple_files) {
 
   EXPECT_EQ(generated_metadata.storage_identifier, GetParam());
   EXPECT_EQ(generated_metadata.version, target_metadata.version);
-  EXPECT_EQ(generated_metadata.ros_distro, target_metadata.ros_distro);
-  EXPECT_EQ(generated_metadata.custom_data, target_metadata.custom_data);
 
   for (const auto & gen_rel_path : generated_metadata.relative_file_paths) {
     EXPECT_TRUE(
@@ -153,13 +149,11 @@ TEST_P(ReindexTestFixture, test_multiple_files) {
         target_metadata.topics_with_message_count.begin(),
         target_metadata.topics_with_message_count.end(),
         [&gen_topic](rosbag2_storage::TopicInformation & t) {
-          // *INDENT-OFF*
           return (t.topic_metadata.name == gen_topic.topic_metadata.name) &&
-                 (t.message_count == gen_topic.message_count) &&
-                 (t.topic_metadata.offered_qos_profiles ==
-                 gen_topic.topic_metadata.offered_qos_profiles) &&
-                 (t.topic_metadata.type == gen_topic.topic_metadata.type);
-          // *INDENT-ON*
+          (t.message_count == gen_topic.message_count) &&
+          (t.topic_metadata.offered_qos_profiles ==
+          gen_topic.topic_metadata.offered_qos_profiles) &&
+          (t.topic_metadata.type == gen_topic.topic_metadata.type);
         }
       ) != target_metadata.topics_with_message_count.end()
     );

@@ -14,11 +14,12 @@
 
 #include <gmock/gmock.h>
 
-#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "rcpputils/filesystem_helper.hpp"
 
 #include "rosbag2_cpp/info.hpp"
 #include "rosbag2_cpp/writer.hpp"
@@ -33,7 +34,6 @@
 
 using namespace ::testing;  // NOLINT
 using rosbag2_test_common::ParametrizedTemporaryDirectoryFixture;
-namespace fs = std::filesystem;
 
 TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_2) {
   const auto expected_storage_id = GetParam();
@@ -62,8 +62,8 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_2) 
 
   {
     std::ofstream fout {
-      (fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
-      .generic_string()};
+      (rcpputils::fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
+      .string()};
     fout << bagfile;
   }
 
@@ -86,7 +86,7 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_2) 
   {
     const auto actual_first_topic = metadata.topics_with_message_count[0];
     const auto expected_first_topic =
-      rosbag2_storage::TopicInformation{{0u, "topic1", "type1", "rmw1", {}, ""}, 100};
+      rosbag2_storage::TopicInformation{{"topic1", "type1", "rmw1", {}, ""}, 100};
 
     EXPECT_EQ(actual_first_topic.topic_metadata, expected_first_topic.topic_metadata);
     EXPECT_EQ(actual_first_topic.message_count, expected_first_topic.message_count);
@@ -95,7 +95,7 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_2) 
   {
     const auto actual_second_topic = metadata.topics_with_message_count[1];
     const auto expected_second_topic =
-      rosbag2_storage::TopicInformation{{0u, "topic2", "type2", "rmw2", {}, ""}, 200};
+      rosbag2_storage::TopicInformation{{"topic2", "type2", "rmw2", {}, ""}, 200};
 
     EXPECT_EQ(actual_second_topic.topic_metadata, expected_second_topic.topic_metadata);
     EXPECT_EQ(actual_second_topic.message_count, expected_second_topic.message_count);
@@ -150,8 +150,8 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_6) 
 
   {
     std::ofstream fout {
-      (fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
-      .generic_string()};
+      (rcpputils::fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
+      .string()};
     fout << bagfile;
   }
 
@@ -192,7 +192,7 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_6) 
   {
     const auto actual_first_topic = metadata.topics_with_message_count[0];
     const auto expected_first_topic =
-      rosbag2_storage::TopicInformation{{0u, "topic1", "type1", "rmw1", {}, ""}, 100};
+      rosbag2_storage::TopicInformation{{"topic1", "type1", "rmw1", {}, ""}, 100};
 
     EXPECT_EQ(actual_first_topic.topic_metadata, expected_first_topic.topic_metadata);
     EXPECT_EQ(actual_first_topic.message_count, expected_first_topic.message_count);
@@ -201,7 +201,7 @@ TEST_P(ParametrizedTemporaryDirectoryFixture, read_metadata_supports_version_6) 
   {
     const auto actual_second_topic = metadata.topics_with_message_count[1];
     const auto expected_second_topic =
-      rosbag2_storage::TopicInformation{{0u, "topic2", "type2", "rmw2", {}, ""}, 200};
+      rosbag2_storage::TopicInformation{{"topic2", "type2", "rmw2", {}, ""}, 200};
 
     EXPECT_EQ(actual_second_topic.topic_metadata, expected_second_topic.topic_metadata);
     EXPECT_EQ(actual_second_topic.message_count, expected_second_topic.message_count);
@@ -240,8 +240,8 @@ TEST_P(
     "  compression_mode: \"FILE\"\n");
 
   std::ofstream fout {
-    (fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
-    .generic_string()};
+    (rcpputils::fs::path(temporary_dir_path_) / rosbag2_storage::MetadataIo::metadata_filename)
+    .string()};
   fout << bagfile;
   fout.close();
 
@@ -262,7 +262,7 @@ TEST_P(
   EXPECT_THAT(read_metadata.topics_with_message_count, SizeIs(2u));
   auto actual_first_topic = read_metadata.topics_with_message_count[0];
   rosbag2_storage::TopicInformation expected_first_topic =
-  {{0u, "topic1", "type1", "rmw1", {}, ""}, 100};
+  {{"topic1", "type1", "rmw1", {}, ""}, 100};
   EXPECT_THAT(
     actual_first_topic.topic_metadata.name,
     Eq(expected_first_topic.topic_metadata.name));
@@ -275,7 +275,7 @@ TEST_P(
   EXPECT_THAT(actual_first_topic.message_count, Eq(expected_first_topic.message_count));
   auto actual_second_topic = read_metadata.topics_with_message_count[1];
   rosbag2_storage::TopicInformation expected_second_topic =
-  {{0u, "topic2", "type2", "rmw2", {}, ""}, 200};
+  {{"topic2", "type2", "rmw2", {}, ""}, 200};
   EXPECT_THAT(
     actual_second_topic.topic_metadata.name,
     Eq(expected_second_topic.topic_metadata.name));
@@ -293,13 +293,13 @@ TEST_P(
 
 TEST_P(ParametrizedTemporaryDirectoryFixture, info_for_standalone_bagfile) {
   const auto storage_id = GetParam();
-  const auto bag_path = fs::path(temporary_dir_path_) / "bag";
+  const auto bag_path = rcpputils::fs::path(temporary_dir_path_) / "bag";
   {
     // Create an empty bag with default storage
     rosbag2_cpp::Writer writer;
     rosbag2_storage::StorageOptions storage_options;
     storage_options.storage_id = storage_id;
-    storage_options.uri = bag_path.generic_string();
+    storage_options.uri = bag_path.string();
     writer.open(storage_options);
     test_msgs::msg::BasicTypes msg;
     writer.write(msg, "testtopic", rclcpp::Time{});

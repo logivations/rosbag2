@@ -14,10 +14,11 @@
 
 #include <gmock/gmock.h>
 
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
+
+#include "rcpputils/filesystem_helper.hpp"
 
 #include "rcutils/types.h"
 
@@ -33,7 +34,7 @@ public:
   SqliteWrapperTestFixture()
   : StorageTestFixture(),
     db_(
-      (std::filesystem::path(temporary_dir_path_) / "test.db3").generic_string(),
+      (rcpputils::fs::path(temporary_dir_path_) / "test.db3").string(),
       rosbag2_storage::storage_interfaces::IOFlag::READ_WRITE)
   {}
 

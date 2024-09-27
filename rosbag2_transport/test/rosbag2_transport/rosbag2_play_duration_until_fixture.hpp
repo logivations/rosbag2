@@ -50,8 +50,8 @@ public:
   static constexpr bool kBool2Value{true};
   static constexpr bool kBool3Value{false};
 
-  static constexpr const char * kTopic1Name_{"/topic1"};
-  static constexpr const char * kTopic2Name_{"/topic2"};
+  static constexpr const char * kTopic1Name_{"topic1"};
+  static constexpr const char * kTopic2Name_{"topic2"};
   static constexpr const char * kTopic1_{"/topic1"};
   static constexpr const char * kTopic2_{"/topic2"};
 
@@ -91,9 +91,8 @@ public:
 
   std::vector<rosbag2_storage::TopicMetadata> get_topic_types()
   {
-    return {
-      {1u, kTopic1Name_, "test_msgs/BasicTypes", "", {}, ""},
-      {2u, kTopic2Name_, "test_msgs/Arrays", "", {}, ""}};
+    return {{kTopic1Name_, "test_msgs/BasicTypes", "", {}, ""},
+      {kTopic2Name_, "test_msgs/Arrays", "", {}, ""}};
   }
 
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>>

@@ -33,7 +33,6 @@
 #include "test_msgs/message_fixtures.hpp"
 #include "test_msgs/srv/basic_types.hpp"
 
-#include "mock_recorder.hpp"
 #include "record_integration_fixture.hpp"
 
 using namespace std::chrono_literals;  // NOLINT
@@ -62,7 +61,7 @@ TEST_F(RecordIntegrationTestFixture, regex_topics_recording)
   ASSERT_FALSE(std::regex_match(b4, re));
 
   rosbag2_transport::RecordOptions record_options =
-  {false, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 10ms};
+  {false, false, false, {}, {}, {}, {}, "rmw_format", 10ms};
   record_options.regex = regex;
 
   // TODO(karsten1987) Refactor this into publication manager
@@ -78,7 +77,6 @@ TEST_F(RecordIntegrationTestFixture, regex_topics_recording)
   recorder->record();
 
   start_async_spin(recorder);
-  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(pub_manager.wait_for_matched(v1.c_str()));
 
@@ -88,12 +86,12 @@ TEST_F(RecordIntegrationTestFixture, regex_topics_recording)
   MockSequentialWriter & mock_writer =
     static_cast<MockSequentialWriter &>(writer.get_implementation_handle());
 
-  constexpr size_t expected_messages = 3;
-  auto ret = rosbag2_test_common::wait_until_condition(
-    [ =, &mock_writer]() {
+  size_t expected_messages = 3;
+  auto ret = rosbag2_test_common::wait_until_shutdown(
+    std::chrono::seconds(5),
+    [&mock_writer, &expected_messages]() {
       return mock_writer.get_messages().size() >= expected_messages;
-    },
-    std::chrono::seconds(5));
+    });
   auto recorded_messages = mock_writer.get_messages();
   // We may receive additional messages from rosout, it doesn't matter,
   // as long as we have received at least as many total messages as we expect
@@ -135,9 +133,10 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_topic_recording)
   ASSERT_TRUE(std::regex_match(e1, exclude));
 
   rosbag2_transport::RecordOptions record_options =
-  {false, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 10ms};
+  {false, false, false, {}, {}, {}, {}, "rmw_format", 10ms};
   record_options.regex = regex;
   record_options.exclude_regex = topics_regex_to_exclude;
+
 
   // TODO(karsten1987) Refactor this into publication manager
   rosbag2_test_common::PublicationManager pub_manager;
@@ -152,7 +151,6 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_topic_recording)
   recorder->record();
 
   start_async_spin(recorder);
-  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(pub_manager.wait_for_matched(v1.c_str()));
   ASSERT_TRUE(pub_manager.wait_for_matched(v2.c_str()));
@@ -163,12 +161,12 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_topic_recording)
   MockSequentialWriter & mock_writer =
     static_cast<MockSequentialWriter &>(writer.get_implementation_handle());
 
-  constexpr size_t expected_messages = 3;
-  auto ret = rosbag2_test_common::wait_until_condition(
-    [ =, &mock_writer]() {
+  size_t expected_messages = 3;
+  auto ret = rosbag2_test_common::wait_until_shutdown(
+    std::chrono::seconds(5),
+    [&mock_writer, &expected_messages]() {
       return mock_writer.get_messages().size() >= expected_messages;
-    },
-    std::chrono::seconds(5));
+    });
   auto recorded_messages = mock_writer.get_messages();
   // We may receive additional messages from rosout, it doesn't matter,
   // as long as we have received at least as many total messages as we expect
@@ -211,7 +209,7 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_topic_topic_recording)
   ASSERT_TRUE(e1 == topics_exclude);
 
   rosbag2_transport::RecordOptions record_options =
-  {false, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 10ms};
+  {false, false, false, {}, {}, {}, {}, "rmw_format", 10ms};
   record_options.regex = regex;
   record_options.exclude_topics.emplace_back(topics_exclude);
 
@@ -228,7 +226,6 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_topic_topic_recording)
   recorder->record();
 
   start_async_spin(recorder);
-  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(pub_manager.wait_for_matched(v1.c_str()));
   ASSERT_TRUE(pub_manager.wait_for_matched(v2.c_str()));
@@ -239,12 +236,12 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_topic_topic_recording)
   MockSequentialWriter & mock_writer =
     static_cast<MockSequentialWriter &>(writer.get_implementation_handle());
 
-  constexpr size_t expected_messages = 3;
-  auto ret = rosbag2_test_common::wait_until_condition(
-    [ =, &mock_writer]() {
+  size_t expected_messages = 3;
+  auto ret = rosbag2_test_common::wait_until_shutdown(
+    std::chrono::seconds(5),
+    [&mock_writer, &expected_messages]() {
       return mock_writer.get_messages().size() >= expected_messages;
-    },
-    std::chrono::seconds(5));
+    });
   auto recorded_messages = mock_writer.get_messages();
   // We may receive additional messages from rosout, it doesn't matter,
   // as long as we have received at least as many total messages as we expect
@@ -274,7 +271,7 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_service_recording)
   std::string b2 = "/namespace_before/not_nice";
 
   rosbag2_transport::RecordOptions record_options =
-  {false, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 10ms};
+  {false, false, false, {}, {}, {}, {}, "rmw_format", 10ms};
   record_options.regex = regex;
   record_options.exclude_regex = services_regex_to_exclude;
 
@@ -293,26 +290,17 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_service_recording)
   auto service_manager_b2 =
     std::make_shared<rosbag2_test_common::ClientManager<test_msgs::srv::BasicTypes>>(b2);
 
-  auto recorder = std::make_shared<MockRecorder>(
+  auto recorder = std::make_shared<rosbag2_transport::Recorder>(
     std::move(writer_), storage_options_, record_options);
   recorder->record();
 
   start_async_spin(recorder);
-  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
-  ASSERT_TRUE(service_manager_v1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_v2->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_e1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_b1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_b2->wait_for_service_to_be_ready());
-
-  // At this point, we expect that the services /still_nice_service and /awesome_nice_service,
-  // along with the event topics /still_nice_service/_service_event
-  // and /awesome_nice_service/_service_event are available to be recorded.  However,
-  // wait_for_service_to_be_ready() only checks the services, not the event topics, so ask the
-  // recorder to make sure it has successfully subscribed to all.
-  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(v1 + "/_service_event"));
-  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(v2 + "/_service_event"));
+  ASSERT_TRUE(service_manager_v1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_v2->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_e1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_b1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_b2->wait_for_srvice_to_be_ready());
 
   auto & writer = recorder->get_writer_handle();
   auto & mock_writer = dynamic_cast<MockSequentialWriter &>(writer.get_implementation_handle());
@@ -323,12 +311,12 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_regex_service_recording)
   ASSERT_TRUE(service_manager_b1->send_request());
   ASSERT_TRUE(service_manager_b2->send_request());
 
-  constexpr size_t expected_messages = 4;
-  auto ret = rosbag2_test_common::wait_until_condition(
-    [ =, &mock_writer]() {
+  size_t expected_messages = 4;
+  auto ret = rosbag2_test_common::wait_until_shutdown(
+    std::chrono::seconds(5),
+    [&mock_writer, &expected_messages]() {
       return mock_writer.get_messages().size() >= expected_messages;
-    },
-    std::chrono::seconds(5));
+    });
   EXPECT_TRUE(ret) << "failed to capture expected messages in time";
   auto recorded_messages = mock_writer.get_messages();
   EXPECT_THAT(recorded_messages, SizeIs(expected_messages));
@@ -356,7 +344,7 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_service_service_recording
   std::string b2 = "/namespace_before/not_nice";
 
   rosbag2_transport::RecordOptions record_options =
-  {false, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 10ms};
+  {false, false, false, {}, {}, {}, {}, "rmw_format", 10ms};
   record_options.regex = regex;
   record_options.exclude_service_events.emplace_back(services_exclude);
 
@@ -375,26 +363,17 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_service_service_recording
   auto service_manager_b2 =
     std::make_shared<rosbag2_test_common::ClientManager<test_msgs::srv::BasicTypes>>(b2);
 
-  auto recorder = std::make_shared<MockRecorder>(
+  auto recorder = std::make_shared<rosbag2_transport::Recorder>(
     std::move(writer_), storage_options_, record_options);
   recorder->record();
 
   start_async_spin(recorder);
-  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
-  ASSERT_TRUE(service_manager_v1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_v2->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_e1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_b1->wait_for_service_to_be_ready());
-  ASSERT_TRUE(service_manager_b2->wait_for_service_to_be_ready());
-
-  // At this point, we expect that the services /still_nice_service and /awesome_nice_service,
-  // along with the event topics /still_nice_service/_service_event
-  // and /awesome_nice_service/_service_event are available to be recorded.  However,
-  // wait_for_service_to_be_ready() only checks the services, not the event topics, so ask the
-  // recorder to make sure it has successfully subscribed to all.
-  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(v1 + "/_service_event"));
-  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(v2 + "/_service_event"));
+  ASSERT_TRUE(service_manager_v1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_v2->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_e1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_b1->wait_for_srvice_to_be_ready());
+  ASSERT_TRUE(service_manager_b2->wait_for_srvice_to_be_ready());
 
   auto & writer = recorder->get_writer_handle();
   auto & mock_writer = dynamic_cast<MockSequentialWriter &>(writer.get_implementation_handle());
@@ -405,12 +384,12 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_service_service_recording
   ASSERT_TRUE(service_manager_b1->send_request());
   ASSERT_TRUE(service_manager_b2->send_request());
 
-  constexpr size_t expected_messages = 4;
-  auto ret = rosbag2_test_common::wait_until_condition(
-    [ =, &mock_writer]() {
+  size_t expected_messages = 4;
+  auto ret = rosbag2_test_common::wait_until_shutdown(
+    std::chrono::seconds(5),
+    [&mock_writer, &expected_messages]() {
       return mock_writer.get_messages().size() >= expected_messages;
-    },
-    std::chrono::seconds(5));
+    });
   EXPECT_TRUE(ret) << "failed to capture expected messages in time";
   auto recorded_messages = mock_writer.get_messages();
   EXPECT_THAT(recorded_messages, SizeIs(expected_messages));

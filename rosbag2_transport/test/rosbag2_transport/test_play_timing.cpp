@@ -49,15 +49,14 @@ protected:
     auto primitive_message2 = get_messages_strings()[0];
     primitive_message2->string_value = "Hello World 2";
 
-    topics_and_types = {{1u, "topic1", "test_msgs/Strings", "", {}, ""}};
+    topics_and_types = {{"topic1", "test_msgs/Strings", "", {}, ""}};
     messages = {
       serialize_test_message("topic1", 0, primitive_message1),
       serialize_test_message("topic1", 0, primitive_message2)
     };
 
-    messages[0]->recv_timestamp = 100;
-    messages[1]->recv_timestamp = messages[0]->recv_timestamp +
-      message_time_difference.nanoseconds();
+    messages[0]->time_stamp = 100;
+    messages[1]->time_stamp = messages[0]->time_stamp + message_time_difference.nanoseconds();
 
     prepared_mock_reader = std::make_unique<MockSequentialReader>();
     prepared_mock_reader->prepare(messages, topics_and_types);
