@@ -30,8 +30,6 @@ using namespace std::chrono_literals;  // NOLINT
 using namespace ::testing;  // NOLINT
 using namespace rosbag2_test_common;  // NOLINT
 
-namespace fs = std::filesystem;
-
 class ComposableRecorderIntegrationTests : public CompositionManagerTestFixture
 {
 public:
@@ -43,15 +41,15 @@ public:
     return bag_file_name.str();
   }
 
-  fs::path get_bag_file_path(int split_index)
+  std::filesystem::path get_bag_file_path(int split_index)
   {
     return root_bag_path_ / get_relative_bag_file_path(split_index);
   }
 
-  fs::path get_relative_bag_file_path(int split_index) const
+  std::filesystem::path get_relative_bag_file_path(int split_index) const
   {
     const auto storage_id = GetParam();
-    return fs::path(
+    return std::filesystem::path(
       rosbag2_test_common::bag_filename_for_storage_id(get_bag_file_name(split_index), storage_id));
   }
 
@@ -76,12 +74,12 @@ public:
     const auto storage_path = get_bag_file_path(0);
     const auto start_time = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - start_time < timeout && rclcpp::ok()) {
-      if (fs::exists(storage_path)) {
+      if (std::filesystem::exists(storage_path)) {
         return;
       }
       std::this_thread::sleep_for(50ms);  // wait a bit to not query constantly
     }
-    ASSERT_EQ(fs::exists(storage_path), true)
+    ASSERT_EQ(std::filesystem::exists(storage_path), true)
       << "Could not find storage file: \"" << storage_path.generic_string() << "\"";
   }
 
@@ -115,18 +113,18 @@ public:
   {
     rclcpp::init(0, nullptr);
     auto bag_name = get_test_name() + "_" + GetParam();
-    root_bag_path_ = fs::path(temporary_dir_path_) / bag_name;
+    root_bag_path_ = std::filesystem::path(temporary_dir_path_) / bag_name;
 
     // Clean up potentially leftover bag files.
     // There may be leftovers if the system reallocates a temp directory
     // used by a previous test execution and the test did not have a clean exit.
-    fs::remove_all(root_bag_path_);
+    std::filesystem::remove_all(root_bag_path_);
   }
 
   void TearDown() override
   {
     rclcpp::shutdown();
-    fs::remove_all(root_bag_path_);
+    std::filesystem::remove_all(root_bag_path_);
   }
 
   std::string get_test_name() const
@@ -138,7 +136,7 @@ public:
     return test_name;
   }
 
-  fs::path root_bag_path_;
+  std::filesystem::path root_bag_path_;
 };
 
 class MockComposableRecorder : public rosbag2_transport::Recorder
@@ -214,10 +212,6 @@ TEST_P(ComposableRecorderTests, recorder_can_parse_parameters_from_file) {
   EXPECT_EQ(record_options.is_discovery_disabled, true);
   std::vector<std::string> topics {"/topic", "/other_topic"};
   EXPECT_EQ(record_options.topics, topics);
-  std::vector<std::string> topic_types {"std_msgs/msg/Header", "geometry_msgs/msg/Pose"};
-  EXPECT_EQ(record_options.topic_types, topic_types);
-  std::vector<std::string> exclude_topic_types {"sensor_msgs/msg/Image"};
-  EXPECT_EQ(record_options.exclude_topic_types, exclude_topic_types);
   std::vector<std::string> services {"/service/_service_event", "/other_service/_service_event"};
   EXPECT_EQ(record_options.services, services);
   EXPECT_EQ(record_options.rmw_serialization_format, "cdr");
@@ -230,8 +224,8 @@ TEST_P(ComposableRecorderTests, recorder_can_parse_parameters_from_file) {
     "/exclude_service/_service_event", "/other_exclude_service/_service_event"};
   EXPECT_EQ(record_options.exclude_service_events, exclude_services);
   EXPECT_EQ(record_options.node_prefix, "prefix");
-  EXPECT_EQ(record_options.compression_mode, "file");
-  EXPECT_EQ(record_options.compression_format, "zstd");
+  EXPECT_EQ(record_options.compression_mode, "stream");
+  EXPECT_EQ(record_options.compression_format, "h264");
   EXPECT_EQ(record_options.compression_queue_size, 10);
   EXPECT_EQ(record_options.compression_threads, 2);
   EXPECT_EQ(record_options.compression_threads_priority, -1);
@@ -245,7 +239,6 @@ TEST_P(ComposableRecorderTests, recorder_can_parse_parameters_from_file) {
   EXPECT_EQ(record_options.include_unpublished_topics, true);
   EXPECT_EQ(record_options.ignore_leaf_topics, false);
   EXPECT_EQ(record_options.start_paused, false);
-  EXPECT_EQ(record_options.disable_keyboard_controls, true);
   EXPECT_EQ(record_options.use_sim_time, false);
 
   EXPECT_EQ(storage_options.uri, root_bag_path_.generic_string());

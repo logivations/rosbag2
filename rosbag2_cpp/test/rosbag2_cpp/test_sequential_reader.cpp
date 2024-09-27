@@ -14,11 +14,12 @@
 
 #include <gmock/gmock.h>
 
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "rcpputils/filesystem_helper.hpp"
 
 #include "rosbag2_cpp/readers/sequential_reader.hpp"
 #include "rosbag2_cpp/reader.hpp"
@@ -26,12 +27,12 @@
 
 #include "rosbag2_storage/bag_metadata.hpp"
 #include "rosbag2_storage/metadata_io.hpp"
+#include "rosbag2_storage/ros_helper.hpp"
 #include "rosbag2_storage/topic_metadata.hpp"
 
 #include "rosbag2_test_common/tested_storage_ids.hpp"
 #include "rosbag2_test_common/temporary_directory_fixture.hpp"
 
-#include "std_msgs/msg/string.hpp"
 #include "test_msgs/msg/basic_types.hpp"
 
 #include "fake_data.hpp"
@@ -43,7 +44,6 @@
 
 using namespace testing;  // NOLINT
 using rosbag2_test_common::ParametrizedTemporaryDirectoryFixture;
-namespace fs = std::filesystem;
 
 class SequentialReaderTest : public Test
 {
@@ -52,7 +52,7 @@ public:
   : storage_(std::make_shared<NiceMock<MockStorage>>()),
     converter_factory_(std::make_shared<StrictMock<MockConverterFactory>>()),
     storage_serialization_format_("rmw1_format"),
-    storage_uri_(fs::temp_directory_path().generic_string()),
+    storage_uri_(rcpputils::fs::temp_directory_path().string()),
     default_storage_options_({storage_uri_, "mock_storage"})
   {
     rosbag2_storage::TopicMetadata topic_with_type;
@@ -66,15 +66,12 @@ public:
     message->topic_name = topic_with_type.name;
 
     relative_file_path_ =
-      (fs::path(storage_uri_) / "some/folder").generic_string();
+      (rcpputils::fs::path(storage_uri_) / "some/folder").string();
     auto storage_factory = std::make_unique<StrictMock<MockStorageFactory>>();
     auto metadata_io = std::make_unique<NiceMock<MockMetadataIo>>();
     bag_file_1_path_ = relative_file_path_ / "bag_file1";
     bag_file_2_path_ = relative_file_path_ / "bag_file2";
-    metadata_.relative_file_paths = {
-      bag_file_1_path_.generic_string(),
-      bag_file_2_path_.generic_string()
-    };
+    metadata_.relative_file_paths = {bag_file_1_path_.string(), bag_file_2_path_.string()};
     metadata_.version = 4;
     metadata_.topics_with_message_count.push_back({{topic_with_type}, 6});
     metadata_.storage_identifier = "mock_storage";
@@ -124,9 +121,9 @@ public:
   std::string storage_serialization_format_;
   std::string storage_uri_;
   rosbag2_storage::BagMetadata metadata_;
-  fs::path relative_file_path_;
-  fs::path bag_file_1_path_;
-  fs::path bag_file_2_path_;
+  rcpputils::fs::path relative_file_path_;
+  rcpputils::fs::path bag_file_1_path_;
+  rcpputils::fs::path bag_file_2_path_;
   rosbag2_storage::StorageOptions default_storage_options_;
   size_t num_next_ = 0;
 };
@@ -221,64 +218,32 @@ TEST_F(SequentialReaderTest, next_file_calls_callback) {
   reader_->read_next();
 
   ASSERT_TRUE(callback_called);
-  EXPECT_EQ(closed_file, bag_file_1_path_.generic_string());
-  EXPECT_EQ(opened_file, bag_file_2_path_.generic_string());
+  EXPECT_EQ(closed_file, bag_file_1_path_.string());
+  EXPECT_EQ(opened_file, bag_file_2_path_.string());
 }
 
 TEST_P(ParametrizedTemporaryDirectoryFixture, reader_accepts_bare_file) {
-  const auto bag_path = fs::path(temporary_dir_path_) / "bag";
+  const auto bag_path = rcpputils::fs::path(temporary_dir_path_) / "bag";
   const auto storage_id = GetParam();
 
   {
     // Create an empty bag with default storage
     rosbag2_cpp::Writer writer;
     rosbag2_storage::StorageOptions options;
-    options.uri = bag_path.generic_string();
+    options.uri = bag_path.string();
     options.storage_id = storage_id;
     writer.open(options);
     test_msgs::msg::BasicTypes msg;
     writer.write(msg, "testtopic", rclcpp::Time{});
   }
   rosbag2_storage::MetadataIo metadata_io;
-  auto metadata = metadata_io.read_metadata(bag_path.generic_string());
+  auto metadata = metadata_io.read_metadata(bag_path.string());
   auto first_storage = bag_path / metadata.relative_file_paths[0];
 
   rosbag2_cpp::Reader reader;
-  EXPECT_NO_THROW(reader.open(first_storage.generic_string()));
+  EXPECT_NO_THROW(reader.open(first_storage.string()));
   EXPECT_TRUE(reader.has_next());
   EXPECT_THAT(reader.get_metadata().topics_with_message_count, SizeIs(1));
-}
-
-TEST_P(ParametrizedTemporaryDirectoryFixture, get_metadata_include_topics_with_zero_messages) {
-  const auto bag_path = fs::path(temporary_dir_path_) / "bag_with_no_msgs";
-  const std::string topic_name = "topic_with_0_messages";
-  const auto storage_id = GetParam();
-  {
-    rosbag2_storage::TopicMetadata topic_metadata;
-    topic_metadata.name = topic_name;
-    topic_metadata.type = "std_msgs/msg/String";
-
-    rosbag2_cpp::Writer writer;
-    rosbag2_storage::StorageOptions options;
-    options.uri = bag_path.string();
-    options.storage_id = storage_id;
-    writer.open(options);
-    writer.create_topic(topic_metadata);
-  }
-
-  rosbag2_storage::MetadataIo metadata_io;
-  ASSERT_TRUE(metadata_io.metadata_file_exists(bag_path.string()));
-  auto metadata_from_yaml = metadata_io.read_metadata(bag_path.string());
-  auto first_storage = bag_path / metadata_from_yaml.relative_file_paths[0];
-
-  rosbag2_storage::StorageFactory factory;
-  rosbag2_storage::StorageOptions options;
-  options.uri = first_storage.string();
-  options.storage_id = storage_id;
-  auto reader = factory.open_read_only(options);
-  auto metadata = reader->get_metadata();
-  ASSERT_THAT(metadata.topics_with_message_count, SizeIs(1));
-  EXPECT_EQ(metadata.topics_with_message_count[0].message_count, 0U);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -293,8 +258,7 @@ class ReadOrderTest : public ParametrizedTemporaryDirectoryFixture
 public:
   ReadOrderTest()
   {
-    storage_options.uri =
-      (fs::path(temporary_dir_path_) / "ordertest").generic_string();
+    storage_options.uri = (rcpputils::fs::path(temporary_dir_path_) / "ordertest").string();
     storage_options.storage_id = GetParam();
     write_sample_split_bag(storage_options, fake_messages, split_every);
   }
@@ -345,7 +309,7 @@ public:
       // Check both timestamp and value to uniquely identify messages in expected order
       ASSERT_TRUE(reader.has_next());
       auto next = reader.read_next();
-      EXPECT_EQ(next->recv_timestamp, expect_timestamp);
+      EXPECT_EQ(next->time_stamp, expect_timestamp);
 
       ASSERT_EQ(next->serialized_data->buffer_length, 4u);
       uint32_t value = *reinterpret_cast<uint32_t *>(next->serialized_data->buffer);

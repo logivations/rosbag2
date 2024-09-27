@@ -34,10 +34,8 @@ public:
   bool all_services = false;
   bool is_discovery_disabled = false;
   std::vector<std::string> topics;
-  std::vector<std::string> topic_types;
   std::vector<std::string> services;  // service event topic
   std::vector<std::string> exclude_topics;
-  std::vector<std::string> exclude_topic_types;
   std::vector<std::string> exclude_service_events;  // service event topic
   std::string rmw_serialization_format;
   std::chrono::milliseconds topic_polling_interval{100};
@@ -47,12 +45,7 @@ public:
   std::string compression_mode = "";
   std::string compression_format = "";
   uint64_t compression_queue_size = 1;
-  /// \brief // The number of compression threads
   uint64_t compression_threads = 0;
-  /// \brief Compression threads scheduling priority.
-  /// For Windows the valid values are: THREAD_PRIORITY_LOWEST=-2, THREAD_PRIORITY_BELOW_NORMAL=-1
-  /// and THREAD_PRIORITY_NORMAL=0. For POSIX compatible OSes this is the "nice" value.
-  /// The nice value range is -20 to +19 where -20 is highest, 0 default and +19 is lowest.
   int32_t compression_threads_priority = 0;
   float timeout_for_delay = 90.0;
   std::unordered_map<std::string, rclcpp::QoS> topic_qos_profile_overrides{};
@@ -61,7 +54,6 @@ public:
   bool ignore_leaf_topics = false;
   bool start_paused = false;
   bool use_sim_time = false;
-  bool disable_keyboard_controls = false;
 };
 
 }  // namespace rosbag2_transport

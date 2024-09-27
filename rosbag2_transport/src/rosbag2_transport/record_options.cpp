@@ -31,8 +31,6 @@ Node convert<rosbag2_transport::RecordOptions>::encode(
   node["all_services"] = record_options.all_services;
   node["is_discovery_disabled"] = record_options.is_discovery_disabled;
   node["topics"] = record_options.topics;
-  node["topic_types"] = record_options.topic_types;
-  node["exclude_topic_types"] = record_options.exclude_topic_types;
   node["services"] = record_options.services;
   node["rmw_serialization_format"] = record_options.rmw_serialization_format;
   node["topic_polling_interval"] = record_options.topic_polling_interval;
@@ -51,7 +49,6 @@ Node convert<rosbag2_transport::RecordOptions>::encode(
     record_options.topic_qos_profile_overrides);
   node["include_hidden_topics"] = record_options.include_hidden_topics;
   node["include_unpublished_topics"] = record_options.include_unpublished_topics;
-  node["disable_keyboard_controls"] = record_options.disable_keyboard_controls;
   node["timeout_for_delay"] = record_options.timeout_for_delay;
   return node;
 }
@@ -61,16 +58,8 @@ bool convert<rosbag2_transport::RecordOptions>::decode(
 {
   optional_assign<bool>(node, "all_topics", record_options.all_topics);
   optional_assign<bool>(node, "all_services", record_options.all_services);
-  bool record_options_all{false};  // Parse `all` for backward compatability and convenient usage
-  optional_assign<bool>(node, "all", record_options_all);
-  if (record_options_all) {
-    record_options.all_topics = true;
-    record_options.all_services = true;
-  }
-
   optional_assign<bool>(node, "is_discovery_disabled", record_options.is_discovery_disabled);
   optional_assign<std::vector<std::string>>(node, "topics", record_options.topics);
-  optional_assign<std::vector<std::string>>(node, "topic_types", record_options.topic_types);
   optional_assign<std::vector<std::string>>(node, "services", record_options.services);
   optional_assign<std::string>(
     node, "rmw_serialization_format", record_options.rmw_serialization_format);
@@ -79,13 +68,8 @@ bool convert<rosbag2_transport::RecordOptions>::decode(
     node, "topic_polling_interval", record_options.topic_polling_interval);
 
   optional_assign<std::string>(node, "regex", record_options.regex);
-  // Map exclude to the "exclude_regex" for backward compatability.
-  optional_assign<std::string>(node, "exclude", record_options.exclude_regex);
   optional_assign<std::string>(node, "exclude_regex", record_options.exclude_regex);
   optional_assign<std::vector<std::string>>(node, "exclude_topics", record_options.exclude_topics);
-  optional_assign<std::vector<std::string>>(
-    node, "exclude_topic_types",
-    record_options.exclude_topic_types);
   optional_assign<std::vector<std::string>>(
     node, "exclude_services", record_options.exclude_service_events);
   optional_assign<std::string>(node, "node_prefix", record_options.node_prefix);
@@ -108,9 +92,6 @@ bool convert<rosbag2_transport::RecordOptions>::decode(
   optional_assign<bool>(
     node, "include_unpublished_topics",
     record_options.include_unpublished_topics);
-  optional_assign<bool>(
-    node, "disable_keyboard_controls",
-    record_options.disable_keyboard_controls);
   optional_assign<float>(node, "timeout_for_delay", record_options.timeout_for_delay);
   return true;
 }

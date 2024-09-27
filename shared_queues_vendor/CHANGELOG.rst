@@ -2,27 +2,6 @@
 Changelog for package shared_queues_vendor
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.29.0 (2024-09-03)
--------------------
-
-0.28.0 (2024-06-17)
--------------------
-
-0.27.0 (2024-04-30)
--------------------
-
-0.26.1 (2024-04-17)
--------------------
-
-0.26.0 (2024-04-16)
--------------------
-
-0.25.0 (2024-03-27)
--------------------
-* Remove unused concurrentqueue implementation. (`#1465 <https://github.com/ros2/rosbag2/issues/1465>`_)
-  rosbag2 only depends on the readerwriter queue.
-* Contributors: Chris Lalancette
-
 0.24.0 (2023-07-11)
 -------------------
 

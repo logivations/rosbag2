@@ -60,7 +60,7 @@ std::shared_ptr<SqliteStatementWrapper> SqliteStatementWrapper::execute_and_rese
     std::stringstream errmsg;
     errmsg << "Error when processing SQL statement. SQLite error (" <<
       return_code << "): " << sqlite3_errstr(return_code);
-    reset();
+
     throw SqliteException{errmsg.str(), return_code};
   }
 
@@ -72,7 +72,7 @@ std::shared_ptr<SqliteStatementWrapper> SqliteStatementWrapper::execute_and_rese
       std::stringstream errmsg;
       errmsg << "Statement returned empty value while result was expected: \'" <<
         sqlite3_sql(statement_) << "\'";
-      reset();
+
       throw SqliteException{errmsg.str(), return_code};
     }
   }
@@ -156,7 +156,8 @@ void SqliteStatementWrapper::obtain_column_value(size_t index, int & value) cons
   value = sqlite3_column_int(statement_, static_cast<int>(index));
 }
 
-void SqliteStatementWrapper::obtain_column_value(size_t index, int64_t & value) const
+void
+SqliteStatementWrapper::obtain_column_value(size_t index, rcutils_time_point_value_t & value) const
 {
   value = sqlite3_column_int64(statement_, static_cast<int>(index));
 }

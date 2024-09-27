@@ -15,7 +15,6 @@
 #include <gmock/gmock.h>
 
 #include <cstdlib>
-#include <filesystem>
 #include <future>
 #include <memory>
 #include <string>
@@ -32,8 +31,6 @@
 using namespace ::testing;  // NOLINT
 using namespace rosbag2_test_common;  // NOLINT
 
-namespace fs = std::filesystem;
-
 class PlayEndToEndTestFixture : public Test, public WithParamInterface<std::string>
 {
 public:
@@ -45,7 +42,7 @@ public:
       .durability(rclcpp::DurabilityPolicy::TransientLocal))
   {
     // _SRC_RESOURCES_DIR_PATH defined in CMakeLists.txt
-    bags_path_ = (fs::path(_SRC_RESOURCES_DIR_PATH) / GetParam()).generic_string();
+    bags_path_ = (rcpputils::fs::path(_SRC_RESOURCES_DIR_PATH) / GetParam()).string();
     sub_ = std::make_unique<SubscriptionManager>();
     client_node_ = std::make_shared<rclcpp::Node>("test_record_client");
     cli_resume_ = client_node_->create_client<Resume>("/rosbag2_player/resume");

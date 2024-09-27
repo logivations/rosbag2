@@ -15,7 +15,6 @@
 #include <gmock/gmock.h>
 
 #include <chrono>
-#include <filesystem>
 #include <future>
 #include <memory>
 #include <string>
@@ -34,8 +33,6 @@ using namespace ::testing;  // NOLINT
 using namespace rosbag2_transport;  // NOLINT
 using namespace rosbag2_test_common;  // NOLINT
 
-namespace fs = std::filesystem;
-
 class RosBag2PlaySeekTestFixture
   : public RosBag2PlayTestFixture,
   public WithParamInterface<std::string>
@@ -45,10 +42,10 @@ public:
   : RosBag2PlayTestFixture()
   {
     topic_types_ = std::vector<rosbag2_storage::TopicMetadata>{
-      {1u, "topic1", "test_msgs/BasicTypes", rmw_get_serialization_format(), {}, ""}};
+      {"topic1", "test_msgs/BasicTypes", rmw_get_serialization_format(), {}, ""}};
 
-    const fs::path base{_SRC_RESOURCES_DIR_PATH};
-    const fs::path bag_path = base / GetParam() / "test_bag_for_seek";
+    const rcpputils::fs::path base{_SRC_RESOURCES_DIR_PATH};
+    const rcpputils::fs::path bag_path = base / GetParam() / "test_bag_for_seek";
 
     storage_options_ = rosbag2_storage::StorageOptions({bag_path.string(), "", 0, 0, 0});
     play_options_.read_ahead_queue_size = 2;

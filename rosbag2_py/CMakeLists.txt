@@ -48,13 +48,6 @@ target_link_libraries(_compression_options PUBLIC
   rosbag2_compression::rosbag2_compression
 )
 
-pybind11_add_module(_message_definitions SHARED
-  src/rosbag2_py/_message_definitions.cpp
-)
-target_link_libraries(_message_definitions PUBLIC
-  rosbag2_cpp::rosbag2_cpp
-)
-
 pybind11_add_module(_reader SHARED
   src/rosbag2_py/_reader.cpp
 )
@@ -114,7 +107,6 @@ target_link_libraries(_reindexer PUBLIC
 install(
   TARGETS
     _compression_options
-    _message_definitions
     _reader
     _storage
     _writer
@@ -128,7 +120,6 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
   find_package(ament_cmake_pytest REQUIRED)
-  find_package(rosbag2_test_msgdefs REQUIRED)
 
   set(append_env_vars "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
   set(set_env_vars "ROSBAG2_PY_TEST_RESOURCES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/test/resources")
@@ -175,11 +166,6 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_storage_py
     "test/test_storage.py"
-    APPEND_ENV "${append_env_vars}"
-    ENV "${set_env_vars}"
-  )
-  ament_add_pytest_test(test_message_definitions_py
-    "test/test_message_definitions.py"
     APPEND_ENV "${append_env_vars}"
     ENV "${set_env_vars}"
   )

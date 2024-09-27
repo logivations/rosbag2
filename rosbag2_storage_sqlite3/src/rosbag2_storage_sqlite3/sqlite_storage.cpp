@@ -19,9 +19,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -29,7 +28,7 @@
 #include <vector>
 
 #include "rcpputils/env.hpp"
-#include "rcpputils/scope_exit.hpp"
+#include "rcpputils/filesystem_helper.hpp"
 
 #include "rosbag2_storage/metadata_io.hpp"
 #include "rosbag2_storage/serialized_bag_message.hpp"
@@ -182,10 +181,6 @@ void SqliteStorage::open(
   const rosbag2_storage::StorageOptions & storage_options,
   rosbag2_storage::storage_interfaces::IOFlag io_flag)
 {
-  if (page_count_statement_) {
-    page_count_statement_->reset();  // Reset statement to avoid DB lock
-    page_count_statement_.reset();
-  }
   storage_mode_ = io_flag;
   const auto preset = parse_preset_profile(storage_options.storage_preset_profile);
   auto pragmas = parse_pragmas(storage_options.storage_config_uri, io_flag);
@@ -197,7 +192,7 @@ void SqliteStorage::open(
     relative_path_ = storage_options.uri + FILE_EXTENSION;
 
     // READ_WRITE requires the DB to not exist.
-    if (std::filesystem::exists(std::filesystem::path(relative_path_))) {
+    if (rcpputils::fs::path(relative_path_).exists()) {
       throw std::runtime_error(
               "Failed to create bag: File '" + relative_path_ + "' already exists!");
     }
@@ -205,7 +200,7 @@ void SqliteStorage::open(
     relative_path_ = storage_options.uri;
 
     // APPEND and READ_ONLY require the DB to exist
-    if (!std::filesystem::exists(std::filesystem::path(relative_path_))) {
+    if (!rcpputils::fs::path(relative_path_).exists()) {
       throw std::runtime_error(
               "Failed to read from bag: File '" + relative_path_ + "' does not exist!");
     }
@@ -217,14 +212,9 @@ void SqliteStorage::open(
     throw std::runtime_error("Failed to setup storage. Error: " + std::string(e.what()));
   }
 
-  page_count_statement_ = database_->prepare_statement("PRAGMA page_count;");
-  db_page_size_ = get_page_size();
-  db_file_size_ = db_page_size_ * read_total_page_count_locked();
-
   // initialize only for READ_WRITE since the DB is already initialized if in APPEND.
   if (is_read_write(io_flag)) {
     db_schema_version_ = kDBSchemaVersion_;
-    std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
     initialize();
   } else {
     db_schema_version_ = read_db_schema_version();
@@ -250,9 +240,7 @@ void SqliteStorage::update_metadata(const rosbag2_storage::BagMetadata & metadat
     auto insert_metadata = database_->prepare_statement(
       "INSERT INTO metadata (metadata_version, metadata) VALUES (?, ?)");
     insert_metadata->bind(metadata.version, serialized_metadata);
-    std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
     insert_metadata->execute_and_reset();
-    db_file_size_ = db_page_size_ * read_total_page_count_locked();
   }
 }
 
@@ -282,9 +270,8 @@ void SqliteStorage::commit_transaction()
 
 void SqliteStorage::write(std::shared_ptr<const rosbag2_storage::SerializedBagMessage> message)
 {
-  std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
+  std::lock_guard<std::mutex> db_lock(database_write_mutex_);
   write_locked(message);
-  db_file_size_ = db_page_size_ * read_total_page_count_locked();
 }
 
 void SqliteStorage::write_locked(
@@ -301,9 +288,7 @@ void SqliteStorage::write_locked(
   }
 
   try {
-    write_statement_->bind(
-      message->recv_timestamp, topic_entry->second,
-      message->serialized_data);
+    write_statement_->bind(message->time_stamp, topic_entry->second, message->serialized_data);
   } catch (const SqliteException & exc) {
     if (SQLITE_TOOBIG == exc.get_sqlite_return_code()) {
       // Get the sqlite string/blob limit.
@@ -329,7 +314,7 @@ void SqliteStorage::write_locked(
 void SqliteStorage::write(
   const std::vector<std::shared_ptr<const rosbag2_storage::SerializedBagMessage>> & messages)
 {
-  std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
+  std::lock_guard<std::mutex> db_lock(database_write_mutex_);
   if (!write_statement_) {
     prepare_for_writing();
   }
@@ -338,14 +323,9 @@ void SqliteStorage::write(
 
   for (auto & message : messages) {
     write_locked(message);
-    // Update db_file_size_ with the estimated data size written to the DB
-    // + 3 * sizeof(int64_t) This is for storing timestamp, topic_id and index for messages table
-    db_file_size_ += message->serialized_data->buffer_length + 3 * sizeof(int64_t);
   }
 
   commit_transaction();
-  // Correct db_file_size_ by reading out the exact numbers from the DB
-  db_file_size_ = db_page_size_ * read_total_page_count_locked();
 }
 
 bool SqliteStorage::set_read_order(const rosbag2_storage::ReadOrder & read_order)
@@ -381,12 +361,12 @@ std::shared_ptr<rosbag2_storage::SerializedBagMessage> SqliteStorage::read_next(
 
   auto bag_message = std::make_shared<rosbag2_storage::SerializedBagMessage>();
   bag_message->serialized_data = std::get<0>(*current_message_row_);
-  bag_message->recv_timestamp = std::get<1>(*current_message_row_);
+  bag_message->time_stamp = std::get<1>(*current_message_row_);
   bag_message->topic_name = std::get<2>(*current_message_row_);
 
   // set start time to current time
   // and set seek_row_id to the new row id up
-  seek_time_ = bag_message->recv_timestamp;
+  seek_time_ = bag_message->time_stamp;
   seek_row_id_ = std::get<3>(*current_message_row_) + (read_order_.reverse ? -1 : 1);
 
   ++current_message_row_;
@@ -421,14 +401,9 @@ void SqliteStorage::get_all_message_definitions(
 
 uint64_t SqliteStorage::get_bagfile_size() const
 {
-  if (!database_ || !page_count_statement_) {
-    // Trying to call get_bagfile_size when SqliteStorage::open was not called or db
-    // failed to open. Fallback to the filesystem call.
-    const auto bag_path = std::filesystem::path{get_relative_file_path()};
-    return std::filesystem::exists(bag_path) ? std::filesystem::file_size(bag_path) : 0u;
-  } else {
-    return db_file_size_;
-  }
+  const auto bag_path = rcpputils::fs::path{get_relative_file_path()};
+
+  return bag_path.exists() ? bag_path.file_size() : 0u;
 }
 
 void SqliteStorage::initialize()
@@ -483,7 +458,7 @@ void SqliteStorage::create_topic(
   const rosbag2_storage::TopicMetadata & topic,
   const rosbag2_storage::MessageDefinition & message_definition)
 {
-  std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
+  std::lock_guard<std::mutex> db_lock(database_write_mutex_);
   if (topics_.find(topic.name) == std::end(topics_)) {
     auto insert_topic =
       database_->prepare_statement(
@@ -519,12 +494,11 @@ void SqliteStorage::create_topic(
       topic_type_and_hash,
       static_cast<int>(database_->get_last_insert_id()));
   }
-  db_file_size_ = db_page_size_ * read_total_page_count_locked();
 }
 
 void SqliteStorage::remove_topic(const rosbag2_storage::TopicMetadata & topic)
 {
-  std::lock_guard<std::mutex> db_lock(db_read_write_mutex_);
+  std::lock_guard<std::mutex> db_lock(database_write_mutex_);
   if (topics_.find(topic.name) != std::end(topics_)) {
     auto delete_topic =
       database_->prepare_statement(
@@ -533,7 +507,6 @@ void SqliteStorage::remove_topic(const rosbag2_storage::TopicMetadata & topic)
     delete_topic->execute_and_reset();
     topics_.erase(topic.name);
   }
-  db_file_size_ = db_page_size_ * read_total_page_count_locked();
 }
 
 void SqliteStorage::prepare_for_writing()
@@ -542,130 +515,42 @@ void SqliteStorage::prepare_for_writing()
     "INSERT INTO messages (timestamp, topic_id, data) VALUES (?, ?, ?);");
 }
 
-namespace
-{
-void prepare_included_topics_filter(
-  const rosbag2_storage::StorageFilter & storage_filter,
-  std::vector<std::string> & where_conditions)
-{
-  std::string included_topic_names_str;
-  // Add topic names
-  if (!storage_filter.topics.empty()) {
-    for (auto & topic : storage_filter.topics) {
-      included_topic_names_str += "'" + topic + "'";
-      if (&topic != &storage_filter.topics.back()) {
-        included_topic_names_str += ",";
-      }
-    }
-  }
-
-  // Add service event topic names
-  if (!storage_filter.services_events.empty()) {
-    if (!included_topic_names_str.empty()) {
-      included_topic_names_str += ",";
-    }
-    for (auto & service : storage_filter.services_events) {
-      included_topic_names_str += "'" + service + "'";
-      if (&service != &storage_filter.services_events.back()) {
-        included_topic_names_str += ",";
-      }
-    }
-  }
-
-  std::string topics_filter_str;
-  if (!included_topic_names_str.empty()) {
-    topics_filter_str.append("(topics.name IN (" + included_topic_names_str + "))");
-  }
-
-  std::string regex_filter_str;
-  // Add topics filter based on regular expression
-  if (!storage_filter.regex.empty()) {
-    // Construct string for selected topics
-    regex_filter_str = "(topics.name REGEXP '" + storage_filter.regex + "')";
-  }
-
-  static const char * regex_for_all_service_events_str = "(topics.name REGEXP '.*/_service_event')";
-
-  if (!topics_filter_str.empty() && !regex_filter_str.empty()) {
-    // Note: Inclusive filter conditions shall be joined with OR
-    // Note: Even if services_events list or topics list is empty we shall not include regex for
-    // all service events or for all topics, because storage_filter.regex is not empty and shall
-    // dominate in this case.
-    where_conditions.push_back("(" + topics_filter_str + " OR " + regex_filter_str + ")");
-  } else if (!topics_filter_str.empty()) {  // Note: regex_filter_str is empty in this case
-    if (!storage_filter.services_events.empty()) {
-      if (!storage_filter.topics.empty()) {
-        where_conditions.push_back(topics_filter_str);
-      } else {  // if topics list empty and service_events not empty we shall include all topics
-        where_conditions.push_back(
-          "(" + topics_filter_str + " OR NOT " + regex_for_all_service_events_str + ")");
-      }
-    } else if (!storage_filter.topics.empty()) {
-      where_conditions.push_back(
-        "(" + topics_filter_str + " OR " + regex_for_all_service_events_str + ")");
-    } else {
-      // This shall never happen unless someone will make incorrect changes in logic
-      throw std::logic_error("Either service_events list or topics list shall be not empty!");
-    }
-  } else if (!regex_filter_str.empty()) {
-    where_conditions.push_back(regex_filter_str);
-  }
-}
-
-void prepare_excluded_topics_filter(
-  const rosbag2_storage::StorageFilter & storage_filter,
-  std::vector<std::string> & where_conditions)
-{
-  std::string excluded_topic_names_str;
-  // Add excluded topic name
-  if (!storage_filter.exclude_topics.empty()) {
-    for (auto & topic : storage_filter.exclude_topics) {
-      excluded_topic_names_str += "'" + topic + "'";
-      if (&topic != &storage_filter.exclude_topics.back()) {
-        excluded_topic_names_str += ",";
-      }
-    }
-  }
-
-  // Add service event topic name
-  if (!storage_filter.exclude_service_events.empty()) {
-    excluded_topic_names_str += ",";
-    for (auto & service : storage_filter.exclude_service_events) {
-      excluded_topic_names_str += "'" + service + "'";
-      if (&service != &storage_filter.exclude_service_events.back()) {
-        excluded_topic_names_str += ",";
-      }
-    }
-  }
-
-  if (!excluded_topic_names_str.empty()) {
-    where_conditions.push_back("(topics.name NOT IN (" + excluded_topic_names_str + "))");
-  }
-
-  // exclude topics based on regular expressions
-  if (!storage_filter.regex_to_exclude.empty()) {
-    // Construct string for selected topics
-    where_conditions.push_back(
-      "(topics.name NOT IN "
-      "(SELECT topics.name FROM topics WHERE topics.name REGEXP '" +
-      storage_filter.regex_to_exclude + "'))");
-  }
-}
-}  // namespace
-
 void SqliteStorage::prepare_for_reading()
 {
   std::string statement_str = "SELECT data, timestamp, topics.name, messages.id "
     "FROM messages JOIN topics ON messages.topic_id = topics.id WHERE ";
   std::vector<std::string> where_conditions;
 
-  prepare_included_topics_filter(storage_filter_, where_conditions);
-  prepare_excluded_topics_filter(storage_filter_, where_conditions);
+  // add topic filter
+  if (!storage_filter_.topics.empty()) {
+    // Construct string for selected topics
+    std::string topic_list{""};
+    for (auto & topic : storage_filter_.topics) {
+      topic_list += "'" + topic + "'";
+      if (&topic != &storage_filter_.topics.back()) {
+        topic_list += ",";
+      }
+    }
+    where_conditions.push_back("(topics.name IN (" + topic_list + "))");
+  }
+  // add topic filter based on regular expression
+  if (!storage_filter_.topics_regex.empty()) {
+    // Construct string for selected topics
+    where_conditions.push_back("(topics.name REGEXP '" + storage_filter_.topics_regex + "')");
+  }
+  // exclude topics based on regular expressions
+  if (!storage_filter_.topics_regex_to_exclude.empty()) {
+    // Construct string for selected topics
+    where_conditions.push_back(
+      "(topics.name NOT IN "
+      "(SELECT topics.name FROM topics WHERE topics.name REGEXP '" +
+      storage_filter_.topics_regex_to_exclude + "'))");
+  }
 
   const std::string direction_op = read_order_.reverse ? "<" : ">";
   const std::string order_direction = read_order_.reverse ? "DESC" : "ASC";
 
-  // Add seek head filter
+  // add seek head filter
   // When doing timestamp ordering, we need a secondary ordering on message_id
   // Timestamp is not required to be unique, but message_id is, so for messages with the same
   // timestamp we order by the id to have a consistent and deterministic order.
@@ -674,14 +559,17 @@ void SqliteStorage::prepare_for_reading()
     "AND (messages.id " + direction_op + "= " + std::to_string(seek_row_id_) + ")) "
     "OR (timestamp " + direction_op + " " + std::to_string(seek_time_) + ")) ");
 
-  for (auto it = where_conditions.begin(); it != where_conditions.end(); ++it) {
+  for (
+    std::vector<std::string>::const_iterator it = where_conditions.begin();
+    it != where_conditions.end(); ++it)
+  {
     statement_str += *it;
     if (it != where_conditions.end() - 1) {
       statement_str += " AND ";
     }
   }
 
-  // Add order by time then id
+  // add order by time then id
   statement_str += "ORDER BY messages.timestamp " + order_direction;
   statement_str += ", messages.id " + order_direction;
   statement_str += ";";
@@ -697,51 +585,48 @@ void SqliteStorage::fill_topics_and_types()
   if (database_->field_exists("topics", "offered_qos_profiles")) {
     if (database_->field_exists("topics", "type_description_hash")) {
       auto statement = database_->prepare_statement(
-        "SELECT id, name, type, serialization_format, offered_qos_profiles, type_description_hash"
+        "SELECT name, type, serialization_format, offered_qos_profiles, type_description_hash"
         " FROM topics ORDER BY id;");
       auto query_results = statement->execute_query<
-        int64_t, std::string, std::string, std::string, std::string, std::string>();
+        std::string, std::string, std::string, std::string, std::string>();
 
-      for (const auto & [inner_topic_id, topic_name, topic_type, ser_format,
-        offered_qos_profiles_str, type_hash] : query_results)
-      {
+      for (auto result : query_results) {
         auto offered_qos_profiles = rosbag2_storage::to_rclcpp_qos_vector(
           // Before db_schema_version_ = 3 we didn't store metadata in the database and real
           // metadata_.version will be lower than 9
-          offered_qos_profiles_str, (db_schema_version_ >= 3) ? metadata_.version : 8);
+          std::get<3>(result), (db_schema_version_ >= 3) ? metadata_.version : 8);
         all_topics_and_types_.push_back(
-          {get_or_generate_extern_topic_id(inner_topic_id), topic_name, topic_type, ser_format,
-            offered_qos_profiles, type_hash});
+          {
+            std::get<0>(result),
+            std::get<1>(result),
+            std::get<2>(result),
+            offered_qos_profiles,
+            std::get<4>(result)});
       }
-    } else {  // Without type_hash
+    } else {
       auto statement = database_->prepare_statement(
-        "SELECT id, name, type, serialization_format, offered_qos_profiles FROM topics "
-        "ORDER BY id;");
+        "SELECT name, type, serialization_format, offered_qos_profiles FROM topics ORDER BY id;");
       auto query_results = statement->execute_query<
-        int64_t, std::string, std::string, std::string, std::string>();
+        std::string, std::string, std::string, std::string>();
 
-      for (const auto & [inner_topic_id, topic_name, topic_type, ser_format,
-        offered_qos_profiles_str] : query_results)
-      {
+      for (auto result : query_results) {
         auto offered_qos_profiles = rosbag2_storage::to_rclcpp_qos_vector(
           // Before db_schema_version_ = 3 we didn't store metadata in the database and real
           // metadata_.version will be lower than 9
-          offered_qos_profiles_str, (db_schema_version_ >= 3) ? metadata_.version : 8);
+          std::get<3>(result), (db_schema_version_ >= 3) ? metadata_.version : 8);
         all_topics_and_types_.push_back(
-          {get_or_generate_extern_topic_id(inner_topic_id), topic_name, topic_type, ser_format,
-            offered_qos_profiles, ""});
+          {std::get<0>(result), std::get<1>(result), std::get<2>(result), offered_qos_profiles,
+            ""});
       }
     }
-  } else {  // No offered_qos_profiles and no type_hash
+  } else {
     auto statement = database_->prepare_statement(
-      "SELECT id, name, type, serialization_format FROM topics ORDER BY id;");
-    auto query_results =
-      statement->execute_query<int64_t, std::string, std::string, std::string>();
+      "SELECT name, type, serialization_format FROM topics ORDER BY id;");
+    auto query_results = statement->execute_query<std::string, std::string, std::string>();
 
-    for (const auto & [inner_topic_id, topic_name, topic_type, ser_format] : query_results) {
+    for (auto result : query_results) {
       all_topics_and_types_.push_back(
-        {get_or_generate_extern_topic_id(inner_topic_id), topic_name, topic_type, ser_format,
-          {}, ""});
+        {std::get<0>(result), std::get<1>(result), std::get<2>(result), {}, ""});
     }
   }
 }
@@ -759,39 +644,6 @@ std::string SqliteStorage::get_relative_file_path() const
 uint64_t SqliteStorage::get_minimum_split_file_size() const
 {
   return MIN_SPLIT_FILE_SIZE;
-}
-
-void SqliteStorage::add_topic_to_metadata(
-  int64_t inner_topic_id, std::string topic_name, std::string topic_type, std::string ser_format,
-  int64_t msg_count, const std::string & offered_qos_profiles_str, const std::string & type_hash)
-{
-  auto offered_qos_profiles = rosbag2_storage::to_rclcpp_qos_vector(
-    // Before db_schema_version_ = 3 we didn't store metadata in the database and real
-    // metadata_.version will be lower than 9
-    offered_qos_profiles_str, (db_schema_version_ >= 3) ? metadata_.version : 8);
-  const rosbag2_storage::TopicMetadata topic_metadata {
-    get_or_generate_extern_topic_id(inner_topic_id), topic_name, topic_type, ser_format,
-    offered_qos_profiles, type_hash};
-  auto & topics_list = metadata_.topics_with_message_count;
-  auto it = std::find_if(
-    topics_list.begin(), topics_list.end(),
-    [&](const rosbag2_storage::TopicInformation & topic_info) {
-      return topic_info.topic_metadata == topic_metadata;
-    });
-  if (it != topics_list.end()) {
-    it->message_count = msg_count;
-  } else {
-    metadata_.topics_with_message_count.push_back(
-      {
-        {
-          get_or_generate_extern_topic_id(inner_topic_id), topic_name, topic_type, ser_format,
-          offered_qos_profiles, type_hash
-        },
-        static_cast<size_t>(msg_count)
-      });
-  }
-
-  metadata_.message_count += msg_count;
 }
 
 void SqliteStorage::read_metadata()
@@ -824,79 +676,86 @@ void SqliteStorage::read_metadata()
   rcutils_time_point_value_t min_time = INT64_MAX;
   rcutils_time_point_value_t max_time = 0;
 
-  // fill in all topics and types even those do not have any messages
-  if (all_topics_and_types_.empty()) {
-    fill_topics_and_types();
-  }
-  metadata_.topics_with_message_count.reserve(all_topics_and_types_.size());
-  for (const auto & topic_metadata : all_topics_and_types_) {
-    metadata_.topics_with_message_count.push_back({topic_metadata, 0});
-  }
-
   if (database_->field_exists("topics", "offered_qos_profiles")) {
     if (database_->field_exists("topics", "type_description_hash")) {
       std::string query =
-        "SELECT messages.topic_id, name, type, serialization_format, COUNT(messages.id), "
-        "MIN(messages.timestamp), MAX(messages.timestamp), offered_qos_profiles, "
-        "type_description_hash FROM messages JOIN topics on topics.id = messages.topic_id "
-        "GROUP BY topics.name;";
-
-      auto statement = database_->prepare_statement(query);
-      auto query_results = statement->execute_query<
-        int64_t, std::string, std::string, std::string, int64_t, rcutils_time_point_value_t,
-        rcutils_time_point_value_t, std::string, std::string>();
-
-      for (const auto & [inner_topic_id, topic_name, topic_type, ser_format, msg_count,
-        min_recv_timestamp, max_recv_timestamp, offered_qos_profiles_str, type_hash] :
-        query_results)
-      {
-        add_topic_to_metadata(
-          inner_topic_id, topic_name, topic_type, ser_format, msg_count,
-          offered_qos_profiles_str, type_hash);
-
-        min_time = min_recv_timestamp < min_time ? min_recv_timestamp : min_time;
-        max_time = max_recv_timestamp > max_time ? max_recv_timestamp : max_time;
-      }
-    } else {  // Without type_hash
-      std::string query =
-        "SELECT messages.topic_id, name, type, serialization_format, COUNT(messages.id), "
-        "MIN(messages.timestamp), MAX(messages.timestamp), offered_qos_profiles "
+        "SELECT name, type, serialization_format, COUNT(messages.id), MIN(messages.timestamp), "
+        "MAX(messages.timestamp), offered_qos_profiles, type_description_hash "
         "FROM messages JOIN topics on topics.id = messages.topic_id "
         "GROUP BY topics.name;";
 
       auto statement = database_->prepare_statement(query);
-      auto query_results =
-        statement->execute_query<int64_t, std::string, std::string, std::string, int64_t,
-          rcutils_time_point_value_t, rcutils_time_point_value_t, std::string>();
+      auto query_results = statement->execute_query<
+        std::string, std::string, std::string, int, rcutils_time_point_value_t,
+        rcutils_time_point_value_t, std::string, std::string>();
 
-      for (const auto & [inner_topic_id, topic_name, topic_type, ser_format, msg_count,
-        min_recv_timestamp, max_recv_timestamp, offered_qos_profiles_str] : query_results)
-      {
-        add_topic_to_metadata(
-          inner_topic_id, topic_name, topic_type, ser_format, msg_count,
-          offered_qos_profiles_str, "");
+      for (auto result : query_results) {
+        auto offered_qos_profiles = rosbag2_storage::to_rclcpp_qos_vector(
+          // Before db_schema_version_ = 3 we didn't store metadata in the database and real
+          // metadata_.version will be lower than 9
+          std::get<6>(result), (db_schema_version_ >= 3) ? metadata_.version : 8);
+        metadata_.topics_with_message_count.push_back(
+          {
+            {std::get<0>(result), std::get<1>(result), std::get<2>(
+                result), offered_qos_profiles, std::get<7>(result)},
+            static_cast<size_t>(std::get<3>(result))
+          });
 
-        min_time = min_recv_timestamp < min_time ? min_recv_timestamp : min_time;
-        max_time = max_recv_timestamp > max_time ? max_recv_timestamp : max_time;
+        metadata_.message_count += std::get<3>(result);
+        min_time = std::get<4>(result) < min_time ? std::get<4>(result) : min_time;
+        max_time = std::get<5>(result) > max_time ? std::get<5>(result) : max_time;
+      }
+    } else {
+      std::string query =
+        "SELECT name, type, serialization_format, COUNT(messages.id), MIN(messages.timestamp), "
+        "MAX(messages.timestamp), offered_qos_profiles "
+        "FROM messages JOIN topics on topics.id = messages.topic_id "
+        "GROUP BY topics.name;";
+
+      auto statement = database_->prepare_statement(query);
+      auto query_results = statement->execute_query<
+        std::string, std::string, std::string, int, rcutils_time_point_value_t,
+        rcutils_time_point_value_t, std::string>();
+
+      for (auto result : query_results) {
+        auto offered_qos_profiles = rosbag2_storage::to_rclcpp_qos_vector(
+          // Before db_schema_version_ = 3 we didn't store metadata in the database and real
+          // metadata_.version will be lower than 9
+          std::get<6>(result), (db_schema_version_ >= 3) ? metadata_.version : 8);
+        metadata_.topics_with_message_count.push_back(
+          {
+            {std::get<0>(result), std::get<1>(result), std::get<2>(
+                result), offered_qos_profiles, ""},
+            static_cast<size_t>(std::get<3>(result))
+          });
+
+        metadata_.message_count += std::get<3>(result);
+        min_time = std::get<4>(result) < min_time ? std::get<4>(result) : min_time;
+        max_time = std::get<5>(result) > max_time ? std::get<5>(result) : max_time;
       }
     }
-  } else {  // No offered_qos_profiles and no type_hash
+  } else {
     std::string query =
-      "SELECT messages.topic_id, name, type, serialization_format, COUNT(messages.id), "
-      "MIN(messages.timestamp), MAX(messages.timestamp) "
+      "SELECT name, type, serialization_format, COUNT(messages.id), MIN(messages.timestamp), "
+      "MAX(messages.timestamp) "
       "FROM messages JOIN topics on topics.id = messages.topic_id "
       "GROUP BY topics.name;";
     auto statement = database_->prepare_statement(query);
-    auto query_results = statement->execute_query<int64_t, std::string, std::string,
-        std::string, int64_t, rcutils_time_point_value_t, rcutils_time_point_value_t>();
+    auto query_results = statement->execute_query<
+      std::string, std::string, std::string, int, rcutils_time_point_value_t,
+      rcutils_time_point_value_t>();
 
-    for (const auto & [inner_topic_id, topic_name, topic_type, ser_format, msg_count,
-      min_recv_timestamp, max_recv_timestamp] : query_results)
-    {
-      add_topic_to_metadata(inner_topic_id, topic_name, topic_type, ser_format, msg_count, "", "");
+    for (auto result : query_results) {
+      metadata_.topics_with_message_count.push_back(
+        {
+          {std::get<0>(result), std::get<1>(result), std::get<2>(
+              result), {}, ""},
+          static_cast<size_t>(std::get<3>(result))
+        });
 
-      min_time = min_recv_timestamp < min_time ? min_recv_timestamp : min_time;
-      max_time = max_recv_timestamp > max_time ? max_recv_timestamp : max_time;
+      metadata_.message_count += std::get<3>(result);
+      min_time = std::get<4>(result) < min_time ? std::get<4>(result) : min_time;
+      max_time = std::get<5>(result) > max_time ? std::get<5>(result) : max_time;
     }
   }
 
@@ -991,63 +850,6 @@ int SqliteStorage::read_db_schema_version()
   }
 
   return schema_version;
-}
-
-uint64_t SqliteStorage::read_total_page_count_locked() const
-{
-  auto scope_exit_reset_statement = rcpputils::make_scope_exit(
-    [this]() {
-      page_count_statement_->reset();
-    });
-  auto page_count_query_result = page_count_statement_->execute_query<int>();
-  auto page_count_query_result_begin = page_count_query_result.begin();
-  if (page_count_query_result_begin == page_count_query_result.end()) {
-    throw SqliteException{"Error. PRAGMA page_count return no result."};
-  }
-  return std::get<0>(*page_count_query_result_begin);
-}
-
-uint64_t SqliteStorage::get_page_size() const
-{
-  if (!database_) {
-    return 0;  // Trying to call get_page_size when SqliteStorage::open was not called or db
-    // failed to open
-  }
-  SqliteStatement get_page_size_statement = database_->prepare_statement("PRAGMA page_size;");
-
-  auto page_size_query_result = get_page_size_statement->execute_query<int>();
-  auto page_size_query_result_begin = page_size_query_result.begin();
-  if (page_size_query_result_begin == page_size_query_result.end()) {
-    throw SqliteException{"Error. PRAGMA page_size return no result."};
-  }
-  return std::get<0>(*page_size_query_result_begin);
-}
-
-uint16_t SqliteStorage::get_extern_topic_id(int64_t inner_topic_id) const
-{
-  auto iter = inner_to_extern_topic_id_map_.find(inner_topic_id);
-  if (iter != inner_to_extern_topic_id_map_.end()) {
-    return iter->second;
-  } else {
-    return 0;  // 0 corresponds to the invalid topic_id
-  }
-}
-
-uint16_t SqliteStorage::get_or_generate_extern_topic_id(int64_t inner_topic_id)
-{
-  uint16_t extern_topic_id = get_extern_topic_id(inner_topic_id);
-  if (extern_topic_id == 0) {
-    if (last_extern_topic_id_ == std::numeric_limits<uint16_t>::max()) {
-      ROSBAG2_STORAGE_DEFAULT_PLUGINS_LOG_ERROR_STREAM(
-        "External topic_id reached maximum allowed value" <<
-          std::to_string(std::numeric_limits<uint16_t>::max()));
-      throw std::range_error("External topic_id reached maximum allowed value");
-    }
-    last_extern_topic_id_.fetch_add(1, std::memory_order_relaxed);
-    extern_topic_id = last_extern_topic_id_;
-    inner_to_extern_topic_id_map_[inner_topic_id] = extern_topic_id;
-  }
-  return extern_topic_id;
 }
 
 }  // namespace rosbag2_storage_plugins
