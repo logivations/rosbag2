@@ -665,15 +665,18 @@ RecorderImpl::create_subscription(
         topic_name, \
         qos, \
         [this, topic_name, topic_type, serializer](const MSG_TYPE::ConstSharedPtr message, const rclcpp::MessageInfo & mi) { \
-          rclcpp::SerializedMessage serialized_msg; \
-          serializer->serialize_message(message.get(), &serialized_msg); \
+          auto serialized_msg = std::make_shared<rclcpp::SerializedMessage>(); \
+          serializer->serialize_message(message.get(), serialized_msg.get()); \
           if (!paused_.load()) { \
-          writer_->write( \
-            std::move(serialized_msg), topic_name, topic_type, \
-            mi.get_rmw_message_info().received_timestamp, \
-            mi.get_rmw_message_info().source_timestamp); \
+            writer_->write( \
+              std::static_pointer_cast<const rclcpp::SerializedMessage>(serialized_msg), \
+              topic_name, \
+              topic_type, \
+              mi.get_rmw_message_info().received_timestamp, \
+              mi.get_rmw_message_info().source_timestamp \
+            ); \
           } \
-        }); \
+        });\
       return subscription; \
     }
   // List of all message types with their corresponding string representations
