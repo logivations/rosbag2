@@ -375,6 +375,7 @@ PYBIND11_MODULE(_transport, m) {
   .def_readwrite("use_sim_time", &RecordOptions::use_sim_time)
   .def_readwrite("services", &RecordOptions::services)
   .def_readwrite("all_services", &RecordOptions::all_services)
+  .def_readwrite("timeout_for_delay", &RecordOptions::timeout_for_delay)
   ;
 
   py::class_<rosbag2_py::Player>(m, "Player")

@@ -44,6 +44,60 @@
 #include "rosbag2_transport/config_options_from_node_params.hpp"
 #include "rosbag2_transport/topic_filter.hpp"
 
+#include "rclcpp/serialization.hpp"
+#include "rclcpp/serialized_message.hpp"
+#include "tf2_msgs/msg/tf_message.hpp"
+#include <std_msgs/msg/float64.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <nav2_msgs/msg/speed_limit.hpp>
+#include <amr_interfaces/msg/flexi_soft_errors.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <amr_interfaces/msg/proximity.hpp>
+#include <amr_interfaces/msg/intentional_wait.hpp>
+#include <amr_interfaces/msg/scanned_barcodes.hpp>
+#include <amr_interfaces/msg/lidar_status.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
+#include <rcl_interfaces/msg/log.hpp>
+#include <amr_interfaces/msg/blackboard_info.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <amr_interfaces/msg/laser_scanner_field_set.hpp>
+#include <sensor_msgs/msg/joy.hpp>
+#include <nav2_msgs/msg/polygons_array.hpp>
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <nav2_msgs/msg/behavior_tree_log.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <amr_interfaces/msg/amr_battery_state.hpp>
+#include <nav2_msgs/msg/collision_monitor_state.hpp>
+#include <nav2_msgs/msg/collision_detector_state.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <amr_interfaces/msg/amr_error.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/u_int8.hpp>
+#include <std_msgs/msg/u_int16.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <amr_interfaces/msg/pallets.hpp>
+#include <amr_interfaces/msg/hydraulics_state.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
+#include <amr_interfaces/msg/button.hpp>
+#include <amr_interfaces/msg/barcode_array.hpp>
+#include <amr_interfaces/msg/amr_battery_state_array.hpp>
+#include <amr_interfaces/msg/bt_info.hpp>
+#include <ackermann_msgs/msg/ackermann_drive.hpp>
+#include <rosgraph_msgs/msg/clock.hpp>
+
+
 namespace rosbag2_transport
 {
 
@@ -100,7 +154,7 @@ private:
 
   void subscribe_topic(const rosbag2_storage::TopicMetadata & topic);
 
-  std::shared_ptr<rclcpp::GenericSubscription> create_subscription(
+  std::shared_ptr<rclcpp::SubscriptionBase> create_subscription(
     const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos);
 
   /**
@@ -429,12 +483,19 @@ void RecorderImpl::topics_discovery()
   }
    auto start = node->get_clock()->now();
   // Todo: make this a parameter
-  auto timeout = 90; // seconds
+  auto timeout = record_options_.timeout_for_delay; // seconds
   while (rclcpp::ok() && stop_discovery_ == false) {
     if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
+    /* while not all topics from the topic whitelist are matched, rosbag recorder will check in some interval
+       for the remaining topics.
+       I suppose that due to the distributed nature of ROS2 DDS, this has to connect to all nodes and fetch all their topics.
+       It is thus very CPU-intensive (1 second, 100% of a CPU)
+       While this is not a problem if the whitelist exactly matches the available topics, this creates a maintenance risk:
+       as soon as a topic from the whitelist is removed, these spikes will occur.
+       So, as a compromise, stop discovery after some timeout */
       RCLCPP_INFO(
         node->get_logger(),
-        "Stopping auto-discovery because timeout is reached");
+        "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
       return;
      }
     try {
@@ -510,19 +571,92 @@ void RecorderImpl::subscribe_topic(const rosbag2_storage::TopicMetadata & topic)
   auto subscription = create_subscription(topic.name, topic.type, subscription_qos);
   if (subscription) {
     subscriptions_.insert({topic.name, subscription});
-    RCLCPP_INFO_STREAM(
-      node->get_logger(),
-      "Subscribed to topic '" << topic.name << "'");
   } else {
     writer_->remove_topic(topic);
     subscriptions_.erase(topic.name);
   }
 }
-
-std::shared_ptr<rclcpp::GenericSubscription>
+std::shared_ptr<rclcpp::SubscriptionBase>
 RecorderImpl::create_subscription(
   const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos)
 {
+  // Helper macro to create subscription for a specific message type
+  // direct subscription -> zero copy and intra process communication can be used
+  // the writer expects a serialized message, which usually comes directly from DDS
+  // we have to do it manually here
+  // use RCLCPP_INFO(node->get_logger(), "Received message with address: %p", static_cast<const void*>(message.get())); \ to validate
+  #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
+    if (topic_type == MSG_TYPE_STR) { \
+      RCLCPP_INFO_STREAM(node->get_logger(), "Direct subscription to '" << topic_name << "' with type '" << topic_type << "'"); \
+      auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
+      auto subscription = node->create_subscription<MSG_TYPE>( \
+        topic_name, \
+        qos, \
+        [this, topic_name, topic_type, serializer](const MSG_TYPE::ConstSharedPtr message) { \
+          rclcpp::SerializedMessage serialized_msg; \
+          serializer->serialize_message(message.get(), &serialized_msg); \
+          if (!paused_.load()) { \
+            writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
+          } \
+        }); \
+      return subscription; \
+    }
+  // List of all message types with their corresponding string representations
+  CREATE_SUBSCRIPTION(std_msgs::msg::Float64, "std_msgs/msg/Float64")
+  CREATE_SUBSCRIPTION(tf2_msgs::msg::TFMessage, "tf2_msgs/msg/TFMessage")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::Twist, "geometry_msgs/msg/Twist")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::SpeedLimit, "nav2_msgs/msg/SpeedLimit")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::FlexiSoftErrors, "amr_interfaces/msg/FlexiSoftErrors")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::Path, "nav_msgs/msg/Path")
+  CREATE_SUBSCRIPTION(std_msgs::msg::String, "std_msgs/msg/String")
+  CREATE_SUBSCRIPTION(visualization_msgs::msg::Marker, "visualization_msgs/msg/Marker")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PolygonStamped, "geometry_msgs/msg/PolygonStamped")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::LaserScan, "sensor_msgs/msg/LaserScan")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::CompressedImage, "sensor_msgs/msg/CompressedImage")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Image, "sensor_msgs/msg/Image")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Imu, "sensor_msgs/msg/Imu")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Proximity, "amr_interfaces/msg/Proximity")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::IntentionalWait, "amr_interfaces/msg/IntentionalWait")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::ScannedBarcodes, "amr_interfaces/msg/ScannedBarcodes")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::LidarStatus, "amr_interfaces/msg/LidarStatus")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::OccupancyGrid, "nav_msgs/msg/OccupancyGrid")
+  CREATE_SUBSCRIPTION(rcl_interfaces::msg::Log, "rcl_interfaces/msg/Log")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BlackboardInfo, "amr_interfaces/msg/BlackboardInfo")
+  CREATE_SUBSCRIPTION(nav_msgs::msg::Odometry, "nav_msgs/msg/Odometry")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseStamped, "geometry_msgs/msg/PoseStamped")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseWithCovarianceStamped, "geometry_msgs/msg/PoseWithCovarianceStamped")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::LaserScannerFieldSet, "amr_interfaces/msg/LaserScannerFieldSet")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::Joy, "sensor_msgs/msg/Joy")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::PolygonsArray, "nav2_msgs/msg/PolygonsArray")
+  CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticStatus, "diagnostic_msgs/msg/DiagnosticStatus")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::BehaviorTreeLog, "nav2_msgs/msg/BehaviorTreeLog")
+  CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticArray, "diagnostic_msgs/msg/DiagnosticArray")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryState, "amr_interfaces/msg/AmrBatteryState")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryStateArray, "amr_interfaces/msg/AmrBatteryStateArray")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionMonitorState, "nav2_msgs/msg/CollisionMonitorState")
+  CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionDetectorState, "nav2_msgs/msg/CollisionDetectorState")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::JointState, "sensor_msgs/msg/JointState")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrError, "amr_interfaces/msg/AmrError")
+  CREATE_SUBSCRIPTION(std_msgs::msg::Bool, "std_msgs/msg/Bool")
+  CREATE_SUBSCRIPTION(std_msgs::msg::UInt8, "std_msgs/msg/UInt8")
+  CREATE_SUBSCRIPTION(std_msgs::msg::UInt16, "std_msgs/msg/UInt16")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseArray, "geometry_msgs/msg/PoseArray")
+  CREATE_SUBSCRIPTION(visualization_msgs::msg::MarkerArray, "visualization_msgs/msg/MarkerArray")
+  CREATE_SUBSCRIPTION(sensor_msgs::msg::PointCloud2, "sensor_msgs/msg/PointCloud2")
+  CREATE_SUBSCRIPTION(std_msgs::msg::Float32, "std_msgs/msg/Float32")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Pallets, "amr_interfaces/msg/Pallets")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::HydraulicsState, "amr_interfaces/msg/HydraulicsState")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PointStamped, "geometry_msgs/msg/PointStamped")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::Button, "amr_interfaces/msg/Button")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BarcodeArray, "amr_interfaces/msg/BarcodeArray")
+  CREATE_SUBSCRIPTION(amr_interfaces::msg::BtInfo, "amr_interfaces/msg/BtInfo")
+  CREATE_SUBSCRIPTION(ackermann_msgs::msg::AckermannDrive, "ackermann_msgs/msg/AckermannDrive")
+  CREATE_SUBSCRIPTION(rosgraph_msgs::msg::Clock, "rosgraph_msgs/msg/Clock")
+
+  #undef CREATE_SUBSCRIPTION
+
+  // Fallback generic subscription
+  RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
   auto subscription = node->create_generic_subscription(
     topic_name,
     topic_type,
@@ -534,6 +668,7 @@ RecorderImpl::create_subscription(
     });
   return subscription;
 }
+
 
 std::vector<rclcpp::QoS> RecorderImpl::offered_qos_profiles_for_topic(
   const std::vector<rclcpp::TopicEndpointInfo> & topics_endpoint_info) const

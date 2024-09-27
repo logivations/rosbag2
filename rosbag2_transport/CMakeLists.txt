@@ -25,7 +25,6 @@ endif()
 if(WIN32)
   add_definitions(-DNOMINMAX)
 endif()
-
 find_package(ament_cmake_ros REQUIRED)
 find_package(keyboard_handler REQUIRED)
 find_package(rcl REQUIRED)
@@ -40,6 +39,18 @@ find_package(rosbag2_storage REQUIRED)
 find_package(rmw_implementation_cmake REQUIRED)
 find_package(shared_queues_vendor REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
+find_package(tf2_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(amr_interfaces REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(ackermann_msgs REQUIRED)
+find_package(rosgraph_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rosbag2_transport/bag_rewrite.cpp
@@ -59,6 +70,18 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rosbag2_cpp::rosbag2_cpp
   ${rosbag2_interfaces_TARGETS}
   rosbag2_storage::rosbag2_storage
+  ${tf2_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav2_msgs_TARGETS}
+  ${amr_interfaces_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${rcl_interfaces_TARGETS}
+  ${diagnostic_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${rosgraph_msgs_TARGETS}
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
   rcl::rcl
@@ -105,9 +128,29 @@ ament_export_dependencies(
   rosbag2_cpp
   rosbag2_interfaces
   rosbag2_storage
+  tf2_msgs
+  keyboard_handler
+  rcl
+  rclcpp_components
+  rcutils
+  rmw
+  rosbag2_compression
+  shared_queues_vendor
+  yaml_cpp_vendor
+  std_msgs
+  geometry_msgs
+  nav2_msgs
+  amr_interfaces
+  nav_msgs
+  visualization_msgs
+  sensor_msgs
+  rcl_interfaces
+  diagnostic_msgs
+  ackermann_msgs
+  rosgraph_msgs
 )
 
-if(BUILD_TESTING)
+if(BUILD_TESTING_THIS_IS_DISABLED)
   add_definitions(-D_SRC_RESOURCES_DIR_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/resources")
 
   find_package(ament_cmake_gmock REQUIRED)
