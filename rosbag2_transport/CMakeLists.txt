@@ -39,7 +39,6 @@ find_package(rosbag2_storage REQUIRED)
 find_package(rmw_implementation_cmake REQUIRED)
 find_package(shared_queues_vendor REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(tf2_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -92,7 +91,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   rmw::rmw
   rosbag2_compression::rosbag2_compression
   shared_queues_vendor::singleproducerconsumer
-  yaml-cpp::yaml-cpp
+  yaml-cpp
 )
 
 rclcpp_components_register_node(

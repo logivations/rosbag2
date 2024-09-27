@@ -75,7 +75,9 @@ add_library(${PROJECT_NAME} SHARED
   src/rosbag2_cpp/reindexer.cpp
   src/rosbag2_cpp/service_utils.cpp)
 
-target_link_libraries(${PROJECT_NAME} PUBLIC
+target_link_libraries(${PROJECT_NAME}
+  PUBLIC
+  ament_index_cpp::ament_index_cpp
   pluginlib::pluginlib
   rclcpp::rclcpp
   rcpputils::rcpputils
@@ -85,11 +87,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rosbag2_storage::rosbag2_storage
   rosidl_runtime_c::rosidl_runtime_c
   rosidl_runtime_cpp::rosidl_runtime_cpp
-  rosidl_typesupport_introspection_cpp::rosidl_typesupport_introspection_cpp
-)
-target_link_libraries(${PROJECT_NAME} PRIVATE
-  ament_index_cpp::ament_index_cpp
   rosidl_typesupport_cpp::rosidl_typesupport_cpp
+  rosidl_typesupport_introspection_cpp::rosidl_typesupport_introspection_cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -123,13 +122,12 @@ ament_export_targets(export_${PROJECT_NAME})
 ament_export_dependencies(
   pluginlib
   rclcpp
-  rcpputils
-  rcutils
   rmw
   rmw_implementation
   rosbag2_storage
   rosidl_runtime_c
   rosidl_runtime_cpp
+  rosidl_typesupport_cpp
   rosidl_typesupport_introspection_cpp
 )
 
@@ -168,11 +166,7 @@ if(BUILD_TESTING)
     test/rosbag2_cpp/test_typesupport_helpers.cpp
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   if(TARGET test_typesupport_helpers)
-    target_link_libraries(test_typesupport_helpers
-      ${PROJECT_NAME}
-      ament_index_cpp::ament_index_cpp
-      rosidl_typesupport_cpp::rosidl_typesupport_cpp
-    )
+    target_link_libraries(test_typesupport_helpers ${PROJECT_NAME})
   endif()
 
   ament_add_gmock(test_info
