@@ -587,7 +587,6 @@ RecorderImpl::create_subscription(
   // use RCLCPP_INFO(node->get_logger(), "Received message with address: %p", static_cast<const void*>(message.get())); \ to validate
   #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
     if (topic_type == MSG_TYPE_STR) { \
-      RCLCPP_INFO_STREAM(node->get_logger(), "Direct subscription to '" << topic_name << "' with type '" << topic_type << "'"); \
       auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
       auto subscription = node->create_subscription<MSG_TYPE>( \
         topic_name, \
