@@ -22,6 +22,8 @@
 
 #define ROSBAG2_CPP_PACKAGE_NAME "rosbag2_cpp"
 
+// *INDENT-OFF*
+
 #define ROSBAG2_CPP_LOG_INFO(...) \
   RCUTILS_LOG_INFO_NAMED(ROSBAG2_CPP_PACKAGE_NAME, __VA_ARGS__)
 
@@ -57,5 +59,7 @@
     __ss << args; \
     RCUTILS_LOG_DEBUG_NAMED(ROSBAG2_CPP_PACKAGE_NAME, "%s", __ss.str().c_str()); \
 } while (0)
+
+// *INDENT-ON*
 
 #endif  // ROSBAG2_CPP__LOGGING_HPP_

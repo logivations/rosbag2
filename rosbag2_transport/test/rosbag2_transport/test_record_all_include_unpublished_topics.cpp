@@ -23,6 +23,7 @@
 #include "test_msgs/msg/basic_types.hpp"
 #include "test_msgs/message_fixtures.hpp"
 #include "rosbag2_test_common/publication_manager.hpp"
+#include "rosbag2_test_common/wait_for.hpp"
 #include "record_integration_fixture.hpp"
 
 using namespace std::chrono_literals;  // NOLINT
@@ -35,11 +36,12 @@ TEST_F(RecordIntegrationTestFixture, record_all_include_unpublished_false_ignore
     string_topic, 10, [](test_msgs::msg::Strings::ConstSharedPtr) {});
 
   rosbag2_transport::RecordOptions record_options =
-  {true, false, false, {}, {}, {}, {}, "rmw_format", 100ms};
+  {true, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 100ms};
   record_options.include_unpublished_topics = false;
   auto recorder = std::make_shared<MockRecorder>(writer_, storage_options_, record_options);
   recorder->record();
   start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(string_topic));
   ASSERT_FALSE(recorder->topic_available_for_recording(string_topic));
@@ -53,11 +55,12 @@ TEST_F(RecordIntegrationTestFixture, record_all_include_unpublished_true_include
     string_topic, 10, [](test_msgs::msg::Strings::ConstSharedPtr) {});
 
   rosbag2_transport::RecordOptions record_options =
-  {true, false, false, {}, {}, {}, {}, "rmw_format", 100ms};
+  {true, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 100ms};
   record_options.include_unpublished_topics = true;
   auto recorder = std::make_shared<MockRecorder>(writer_, storage_options_, record_options);
   recorder->record();
   start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(string_topic));
   ASSERT_TRUE(recorder->topic_available_for_recording(string_topic));
@@ -73,11 +76,12 @@ TEST_F(
     string_topic, 10, [](test_msgs::msg::Strings::ConstSharedPtr) {});
 
   rosbag2_transport::RecordOptions record_options =
-  {true, false, false, {}, {}, {}, {}, "rmw_format", 100ms};
+  {true, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 100ms};
   record_options.include_unpublished_topics = false;
   auto recorder = std::make_shared<MockRecorder>(writer_, storage_options_, record_options);
   recorder->record();
   start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(string_topic));
   ASSERT_FALSE(recorder->topic_available_for_recording(string_topic));

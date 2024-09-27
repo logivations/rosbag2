@@ -15,6 +15,7 @@
 #include <gmock/gmock.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <string>
@@ -23,8 +24,6 @@
 #include <vector>
 
 #include "rcpputils/env.hpp"
-
-#include "rcpputils/filesystem_helper.hpp"
 
 #include "rcutils/snprintf.h"
 
@@ -72,9 +71,26 @@ TEST_F(StorageTestFixture, string_messages_are_written_and_read_to_and_from_sqli
   ASSERT_THAT(read_messages, SizeIs(3));
   for (size_t i = 0; i < 3; i++) {
     EXPECT_THAT(deserialize_message(read_messages[i]->serialized_data), Eq(string_messages[i]));
-    EXPECT_THAT(read_messages[i]->time_stamp, Eq(std::get<1>(messages[i])));
+    EXPECT_THAT(read_messages[i]->recv_timestamp, Eq(std::get<1>(messages[i])));
     EXPECT_THAT(read_messages[i]->topic_name, Eq(topics[i]));
   }
+}
+
+TEST_F(StorageTestFixture, check_get_bagfile_size_in_read_only_mode) {
+  std::vector<std::tuple<std::string, int64_t, std::string, std::string, std::string>>
+  string_messages =
+  {std::make_tuple("first message", 1, "topic1", "type1", ""),
+    std::make_tuple("second message", 2, "topic2", "type2", "")};
+
+  write_messages_to_sqlite(string_messages);
+  std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
+    std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
+
+  const auto bag_path = std::filesystem::path(temporary_dir_path_) / "rosbag.db3";
+  auto db_filename = bag_path.generic_string();
+  readable_storage->open({db_filename, kPluginID});
+
+  EXPECT_EQ(readable_storage->get_bagfile_size(), std::filesystem::file_size(bag_path));
 }
 
 TEST_F(StorageTestFixture, has_next_return_false_if_there_are_no_more_messages) {
@@ -87,7 +103,7 @@ TEST_F(StorageTestFixture, has_next_return_false_if_there_are_no_more_messages) 
   std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
-  auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  auto db_filename = (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
   readable_storage->open({db_filename, kPluginID});
 
   EXPECT_TRUE(readable_storage->has_next());
@@ -107,15 +123,15 @@ TEST_F(StorageTestFixture, get_next_returns_messages_in_timestamp_order) {
   std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
-  auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  auto db_filename = (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
   readable_storage->open({db_filename, kPluginID});
 
   EXPECT_TRUE(readable_storage->has_next());
   auto first_message = readable_storage->read_next();
-  EXPECT_THAT(first_message->time_stamp, Eq(2));
+  EXPECT_THAT(first_message->recv_timestamp, Eq(2));
   EXPECT_TRUE(readable_storage->has_next());
   auto second_message = readable_storage->read_next();
-  EXPECT_THAT(second_message->time_stamp, Eq(6));
+  EXPECT_THAT(second_message->recv_timestamp, Eq(6));
   EXPECT_FALSE(readable_storage->has_next());
 }
 
@@ -130,7 +146,7 @@ TEST_F(StorageTestFixture, read_next_returns_filtered_messages) {
   std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
-  auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  auto db_filename = (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
   readable_storage->open({db_filename, kPluginID});
 
   rosbag2_storage::StorageFilter storage_filter;
@@ -171,11 +187,14 @@ TEST_F(StorageTestFixture, get_all_topics_and_types_returns_the_correct_vector) 
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
   // extension is omitted since storage is being created; io_flag = READ_WRITE
-  const auto read_write_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  const auto read_write_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
 
   writable_storage->open({read_write_filename, kPluginID});
-  writable_storage->create_topic({"topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, {});
-  writable_storage->create_topic({"topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, {});
+  writable_storage->create_topic(
+    {0u, "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, {});
+  writable_storage->create_topic(
+    {0u, "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, {});
 
   const auto read_only_filename = writable_storage->get_relative_file_path();
 
@@ -190,8 +209,8 @@ TEST_F(StorageTestFixture, get_all_topics_and_types_returns_the_correct_vector) 
   EXPECT_THAT(
     topics_and_types, ElementsAreArray(
   {
-    rosbag2_storage::TopicMetadata{"topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"},
-    rosbag2_storage::TopicMetadata{"topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}
+    rosbag2_storage::TopicMetadata{1u, "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"},
+    rosbag2_storage::TopicMetadata{2u, "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}
   }));
 }
 
@@ -202,14 +221,15 @@ TEST_F(StorageTestFixture, get_all_message_definitions_returns_the_correct_vecto
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
   // extension is omitted since storage is being created; io_flag = READ_WRITE
-  const auto read_write_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  const auto read_write_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
 
   writable_storage->open({read_write_filename, kPluginID});
   writable_storage->create_topic(
-    {"topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"},
+    {0u, "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"},
     msg_definition);
   writable_storage->create_topic(
-    {"topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"},
+    {0u, "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"},
     msg_definition);
 
   const auto read_only_filename = writable_storage->get_relative_file_path();
@@ -236,10 +256,13 @@ TEST_F(StorageTestFixture, get_all_message_definitions_returns_the_correct_vecto
 
 TEST_F(StorageTestFixture, get_metadata_returns_correct_struct) {
   auto writable_storage = std::make_shared<rosbag2_storage_plugins::SqliteStorage>();
-  auto read_write_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  auto read_write_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
   writable_storage->open({read_write_filename, kPluginID});
-  writable_storage->create_topic({"topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, {});
-  writable_storage->create_topic({"topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, {});
+  writable_storage->create_topic(
+    {0u, "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, {});
+  writable_storage->create_topic(
+    {0u, "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, {});
 
   std::vector<std::string> string_messages = {"first message", "second message", "third message"};
   std::vector<std::string> topics = {"topic1", "topic2"};
@@ -254,7 +277,8 @@ TEST_F(StorageTestFixture, get_metadata_returns_correct_struct) {
   write_messages_to_sqlite(messages, writable_storage);
 
   const auto readable_storage = std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-  const auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  const auto db_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
 
   readable_storage->open(
     {db_filename, kPluginID},
@@ -267,9 +291,9 @@ TEST_F(StorageTestFixture, get_metadata_returns_correct_struct) {
     metadata.topics_with_message_count, ElementsAreArray(
   {
     rosbag2_storage::TopicInformation{rosbag2_storage::TopicMetadata{
-        "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, 2u},
+        1u, "topic1", "type1", "rmw1", {rclcpp::QoS(1)}, "type_hash1"}, 2u},
     rosbag2_storage::TopicInformation{rosbag2_storage::TopicMetadata{
-        "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, 1u}
+        2u, "topic2", "type2", "rmw2", {rclcpp::QoS(2)}, "type_hash2"}, 1u}
   }));
   EXPECT_THAT(metadata.message_count, Eq(3u));
   EXPECT_THAT(
@@ -293,7 +317,8 @@ TEST_F(StorageTestFixture, get_metadata_returns_correct_struct_for_prefoxy_db_sc
   write_messages_to_sqlite_in_pre_foxy_format(messages);
 
   const auto readable_storage = std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-  const auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  const auto db_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
 
   readable_storage->open(
     {db_filename, kPluginID},
@@ -306,9 +331,9 @@ TEST_F(StorageTestFixture, get_metadata_returns_correct_struct_for_prefoxy_db_sc
     metadata.topics_with_message_count, ElementsAreArray(
   {
     rosbag2_storage::TopicInformation{rosbag2_storage::TopicMetadata{
-        "topic1", "type1", "rmw_format", {}, ""}, 2u},
+        1u, "topic1", "type1", "rmw_format", {}, ""}, 2u},
     rosbag2_storage::TopicInformation{rosbag2_storage::TopicMetadata{
-        "topic2", "type2", "rmw_format", {}, ""}, 1u}
+        2u, "topic2", "type2", "rmw_format", {}, ""}, 1u}
   }));
   EXPECT_THAT(metadata.message_count, Eq(3u));
   EXPECT_THAT(
@@ -335,7 +360,7 @@ TEST_F(StorageTestFixture, messages_readable_for_prefoxy_db_schema) {
   ASSERT_THAT(read_messages, SizeIs(3));
   for (size_t i = 0; i < 3; i++) {
     EXPECT_THAT(deserialize_message(read_messages[i]->serialized_data), Eq(string_messages[i]));
-    EXPECT_THAT(read_messages[i]->time_stamp, Eq(std::get<1>(messages[i])));
+    EXPECT_THAT(read_messages[i]->recv_timestamp, Eq(std::get<1>(messages[i])));
     EXPECT_THAT(read_messages[i]->topic_name, Eq(topics[i]));
   }
 }
@@ -344,7 +369,7 @@ TEST_F(StorageTestFixture, get_db_schema_version_returns_correct_value) {
   auto writable_storage = std::make_shared<rosbag2_storage_plugins::SqliteStorage>();
   EXPECT_EQ(writable_storage->get_db_schema_version(), -1);
 
-  auto db_file = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  auto db_file = (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
   writable_storage->open({db_file, plugin_id_});
 
   EXPECT_GE(writable_storage->get_db_schema_version(), 3);
@@ -352,7 +377,7 @@ TEST_F(StorageTestFixture, get_db_schema_version_returns_correct_value) {
 
 TEST_F(StorageTestFixture, metadata_ros_distro_returns_correct_value) {
   auto writable_storage = std::make_shared<rosbag2_storage_plugins::SqliteStorage>();
-  auto db_file = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  auto db_file = (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
   writable_storage->open({db_file, plugin_id_});
 
   std::string current_ros_distro = rcpputils::get_env_var("ROS_DISTRO");
@@ -366,7 +391,7 @@ TEST_F(StorageTestFixture, check_backward_compatibility_with_schema_version_2) {
 
   EXPECT_EQ(readable_storage->get_db_schema_version(), -1);
 
-  auto db_file = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  auto db_file = (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
   readable_storage->open(
     {db_file, plugin_id_},
     rosbag2_storage::storage_interfaces::IOFlag::READ_ONLY);
@@ -379,7 +404,8 @@ TEST_F(StorageTestFixture, get_metadata_returns_correct_struct_if_no_messages) {
   write_messages_to_sqlite({});
 
   const auto readable_storage = std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-  const auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
+  const auto db_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag.db3").generic_string();
 
   readable_storage->open(
     {db_filename, kPluginID},
@@ -402,11 +428,13 @@ TEST_F(StorageTestFixture, remove_topics_and_types_returns_the_empty_vector) {
     std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
   // extension is omitted since storage is created; io_flag = READ_WRITE
-  const auto read_write_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  const auto read_write_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
 
   writable_storage->open({read_write_filename, kPluginID});
-  writable_storage->create_topic({"topic1", "type1", "rmw1", {}, "hash"}, {});
-  writable_storage->remove_topic({"topic1", "type1", "rmw1", {}, "hash"});
+  rosbag2_storage::TopicMetadata topic_metadata{0u, "topic1", "type1", "rmw1", {}, "hash"};
+  writable_storage->create_topic(topic_metadata, {});
+  writable_storage->remove_topic(topic_metadata);
 
   const auto read_only_filename = writable_storage->get_relative_file_path();
 
@@ -433,7 +461,8 @@ TEST_F(StorageTestFixture, get_relative_file_path_returns_db_name_with_ext) {
   // check that storage::get_relative_file_path returns the relative path to the sqlite3 db
   // and that uri is handled properly when storage::open is called with different io_flags
   // READ_WRITE expects uri to not end in extension
-  const auto read_write_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag").string();
+  const auto read_write_filename =
+    (std::filesystem::path(temporary_dir_path_) / "rosbag").generic_string();
   const auto storage_filename = read_write_filename + ".db3";
   const auto read_write_storage = std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
   read_write_storage->open(
@@ -493,8 +522,8 @@ TEST_F(StorageTestFixture, storage_preset_profile_applies_over_defaults) {
   // Check that "resilient" values override default optimized ones
   const auto writable_storage = std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
 
-  auto temp_dir = rcpputils::fs::path(temporary_dir_path_);
-  const auto storage_uri = (temp_dir / "rosbag").string();
+  auto temp_dir = std::filesystem::path(temporary_dir_path_);
+  const auto storage_uri = (temp_dir / "rosbag").generic_string();
   rosbag2_storage::StorageOptions options{storage_uri, kPluginID, 0, 0, 0, {}, ""};
 
   options.storage_preset_profile = "resilient";
@@ -549,98 +578,6 @@ TEST_F(StorageTestFixture, does_not_throw_on_message_too_big) {
       {msg, 0, "/too_big_message", "some_type", "some_rmw"}
     }, writable_storage);
   });
-}
-
-TEST_F(StorageTestFixture, read_next_returns_filtered_messages_regex) {
-  std::vector<std::tuple<std::string, int64_t, std::string, std::string, std::string>>
-  string_messages =
-  {std::make_tuple("topic1 message", 1, "prefix_topic1", "", ""),
-    std::make_tuple("topic2 message", 2, "topic2", "", ""),
-    std::make_tuple("topic3 message", 3, "topic3", "", "")};
-
-  write_messages_to_sqlite(string_messages);
-  std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
-    std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-
-  auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
-  readable_storage->open({db_filename, kPluginID});
-
-  rosbag2_storage::StorageFilter storage_filter;
-  storage_filter.topics_regex = "topic.*";
-  readable_storage->set_filter(storage_filter);
-
-  EXPECT_TRUE(readable_storage->has_next());
-  auto first_message = readable_storage->read_next();
-  EXPECT_THAT(first_message->topic_name, Eq("topic2"));
-  EXPECT_TRUE(readable_storage->has_next());
-  auto second_message = readable_storage->read_next();
-  EXPECT_THAT(second_message->topic_name, Eq("topic3"));
-  EXPECT_FALSE(readable_storage->has_next());
-
-  // Test reset filter
-  std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage2 =
-    std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-
-  readable_storage2->open({db_filename, kPluginID});
-  readable_storage2->set_filter(storage_filter);
-  readable_storage2->reset_filter();
-
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto third_message = readable_storage2->read_next();
-  EXPECT_THAT(third_message->topic_name, Eq("prefix_topic1"));
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto fourth_message = readable_storage2->read_next();
-  EXPECT_THAT(fourth_message->topic_name, Eq("topic2"));
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto fifth_message = readable_storage2->read_next();
-  EXPECT_THAT(fifth_message->topic_name, Eq("topic3"));
-  EXPECT_FALSE(readable_storage2->has_next());
-}
-
-TEST_F(StorageTestFixture, read_next_returns_filtered_messages_topics_regex_to_exclude) {
-  std::vector<std::tuple<std::string, int64_t, std::string, std::string, std::string>>
-  string_messages =
-  {std::make_tuple("topic1 message", 1, "prefix_topic1", "", ""),
-    std::make_tuple("topic2 message", 2, "topic2", "", ""),
-    std::make_tuple("topic3 message", 3, "topic3", "", "")};
-
-  write_messages_to_sqlite(string_messages);
-  std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage =
-    std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-
-  auto db_filename = (rcpputils::fs::path(temporary_dir_path_) / "rosbag.db3").string();
-  readable_storage->open({db_filename, kPluginID});
-
-  rosbag2_storage::StorageFilter storage_filter;
-  storage_filter.topics_regex_to_exclude = "prefix.*";
-  readable_storage->set_filter(storage_filter);
-
-  EXPECT_TRUE(readable_storage->has_next());
-  auto first_message = readable_storage->read_next();
-  EXPECT_THAT(first_message->topic_name, Eq("topic2"));
-  EXPECT_TRUE(readable_storage->has_next());
-  auto second_message = readable_storage->read_next();
-  EXPECT_THAT(second_message->topic_name, Eq("topic3"));
-  EXPECT_FALSE(readable_storage->has_next());
-
-  // Test reset filter
-  std::unique_ptr<rosbag2_storage::storage_interfaces::ReadOnlyInterface> readable_storage2 =
-    std::make_unique<rosbag2_storage_plugins::SqliteStorage>();
-
-  readable_storage2->open({db_filename, kPluginID});
-  readable_storage2->set_filter(storage_filter);
-  readable_storage2->reset_filter();
-
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto third_message = readable_storage2->read_next();
-  EXPECT_THAT(third_message->topic_name, Eq("prefix_topic1"));
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto fourth_message = readable_storage2->read_next();
-  EXPECT_THAT(fourth_message->topic_name, Eq("topic2"));
-  EXPECT_TRUE(readable_storage2->has_next());
-  auto fifth_message = readable_storage2->read_next();
-  EXPECT_THAT(fifth_message->topic_name, Eq("topic3"));
-  EXPECT_FALSE(readable_storage2->has_next());
 }
 
 TEST(StoragePresetProfileValidation, parse_storage_preset_profile_works) {

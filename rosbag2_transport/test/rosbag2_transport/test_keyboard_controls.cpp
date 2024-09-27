@@ -98,13 +98,14 @@ TEST_F(RosBag2PlayTestFixture, invalid_keybindings)
 
   auto message_time_difference = rclcpp::Duration(1, 0);
   auto topics_and_types =
-    std::vector<rosbag2_storage::TopicMetadata>{{"topic1", "test_msgs/Strings", "", {}, ""}};
+    std::vector<rosbag2_storage::TopicMetadata>{{1u, "topic1", "test_msgs/Strings", "", {}, ""}};
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {serialize_test_message("topic1", 0, primitive_message1),
     serialize_test_message("topic1", 0, primitive_message2)};
 
-  messages[0]->time_stamp = 100;
-  messages[1]->time_stamp = messages[0]->time_stamp + message_time_difference.nanoseconds();
+  messages[0]->recv_timestamp = 100;
+  messages[1]->recv_timestamp = messages[0]->recv_timestamp +
+    message_time_difference.nanoseconds();
 
   play_options_.play_next_key = KeyboardHandler::KeyCode::UNKNOWN;
 
@@ -132,15 +133,17 @@ TEST_F(RosBag2PlayTestFixture, test_keyboard_controls)
 
   auto message_time_difference = rclcpp::Duration(1, 0);
   auto topics_and_types =
-    std::vector<rosbag2_storage::TopicMetadata>{{"topic1", "test_msgs/Strings", "", {}, ""}};
+    std::vector<rosbag2_storage::TopicMetadata>{{1u, "topic1", "test_msgs/Strings", "", {}, ""}};
   std::vector<std::shared_ptr<rosbag2_storage::SerializedBagMessage>> messages =
   {serialize_test_message("topic1", 0, primitive_message1),
     serialize_test_message("topic1", 0, primitive_message2),
     serialize_test_message("topic1", 0, primitive_message3)};
 
-  messages[0]->time_stamp = 100;
-  messages[1]->time_stamp = messages[0]->time_stamp + message_time_difference.nanoseconds();
-  messages[2]->time_stamp = messages[1]->time_stamp + message_time_difference.nanoseconds();
+  messages[0]->recv_timestamp = 100;
+  messages[1]->recv_timestamp = messages[0]->recv_timestamp +
+    message_time_difference.nanoseconds();
+  messages[2]->recv_timestamp = messages[1]->recv_timestamp +
+    message_time_difference.nanoseconds();
 
   auto prepared_mock_reader = std::make_unique<MockSequentialReader>();
   prepared_mock_reader->prepare(messages, topics_and_types);
@@ -191,7 +194,7 @@ TEST_F(RecordIntegrationTestFixture, test_keyboard_controls)
   auto keyboard_handler = std::make_shared<MockKeyboardHandler>();
 
   rosbag2_transport::RecordOptions record_options =
-  {true, false, false, {}, {}, {}, {}, "rmw_format", 100ms};
+  {true, false, false, {}, {}, {}, {}, {}, {}, "rmw_format", 100ms};
   record_options.start_paused = true;
 
   auto recorder = std::make_shared<Recorder>(
@@ -200,13 +203,12 @@ TEST_F(RecordIntegrationTestFixture, test_keyboard_controls)
 
   recorder->record();
 
-  this->start_async_spin(recorder);
+  start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
 
   EXPECT_THAT(recorder->is_paused(), true);
   keyboard_handler->simulate_key_press(rosbag2_transport::Recorder::kPauseResumeToggleKey);
   EXPECT_THAT(recorder->is_paused(), false);
   keyboard_handler->simulate_key_press(rosbag2_transport::Recorder::kPauseResumeToggleKey);
   EXPECT_THAT(recorder->is_paused(), true);
-
-  this->stop_spinning();
 }

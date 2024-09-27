@@ -14,6 +14,7 @@
 
 #include "rosbag2_cpp/info.hpp"
 
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
@@ -21,12 +22,13 @@
 
 #include "rmw/rmw.h"
 #include "rosidl_typesupport_cpp/message_type_support.hpp"
-#include "rcpputils/filesystem_helper.hpp"
 #include "service_msgs/msg/service_event_info.hpp"
 
 #include "rosbag2_cpp/service_utils.hpp"
 #include "rosbag2_storage/metadata_io.hpp"
 #include "rosbag2_storage/storage_factory.hpp"
+
+namespace fs = std::filesystem;
 
 namespace rosbag2_cpp
 {
@@ -34,8 +36,8 @@ namespace rosbag2_cpp
 rosbag2_storage::BagMetadata Info::read_metadata(
   const std::string & uri, const std::string & storage_id)
 {
-  const rcpputils::fs::path bag_path{uri};
-  if (!bag_path.exists()) {
+  const fs::path bag_path{uri};
+  if (!fs::exists(bag_path)) {
     throw std::runtime_error("Bag path " + uri + " does not exist.");
   }
 
@@ -44,7 +46,7 @@ rosbag2_storage::BagMetadata Info::read_metadata(
     return metadata_io.read_metadata(uri);
   }
 
-  if (bag_path.is_directory()) {
+  if (fs::is_directory(bag_path)) {
     throw std::runtime_error("Could not find metadata in bag directory " + uri);
   }
 
@@ -58,23 +60,6 @@ rosbag2_storage::BagMetadata Info::read_metadata(
 
 namespace
 {
-struct client_id_hash
-{
-  static_assert(
-    std::is_same<std::array<uint8_t, 16>,
-    service_msgs::msg::ServiceEventInfo::_client_gid_type>::value);
-  std::size_t operator()(const std::array<uint8_t, 16> & client_id) const
-  {
-    std::hash<uint8_t> hasher;
-    std::size_t seed = 0;
-    for (const auto & value : client_id) {
-      // 0x9e3779b9 is from https://cryptography.fandom.com/wiki/Tiny_Encryption_Algorithm
-      seed ^= hasher(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
-};
-
 using client_id = service_msgs::msg::ServiceEventInfo::_client_gid_type;
 using sequence_set = std::unordered_set<int64_t>;
 struct service_req_resp_info
@@ -178,6 +163,24 @@ std::vector<std::shared_ptr<rosbag2_service_info_t>> Info::read_service_info(
   }
 
   return ret_service_info;
+}
+
+std::unordered_map<std::string, uint64_t> Info::compute_messages_size_contribution(
+  const std::string & uri, const std::string & storage_id)
+{
+  rosbag2_storage::StorageFactory factory;
+  auto storage = factory.open_read_only({uri, storage_id});
+  if (!storage) {
+    throw std::runtime_error("No plugin detected that could open file " + uri);
+  }
+
+  std::unordered_map<std::string, uint64_t> messages_size;
+  while (storage->has_next()) {
+    auto bag_msg = storage->read_next();
+    messages_size[bag_msg->topic_name] += bag_msg->serialized_data->buffer_length;
+  }
+
+  return messages_size;
 }
 
 }  // namespace rosbag2_cpp
