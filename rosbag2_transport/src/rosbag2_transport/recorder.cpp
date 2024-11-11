@@ -424,6 +424,13 @@ void RecorderImpl::event_publisher_thread_main()
           node->get_logger(),
           "Failed to publish message on '/events/write_split' topic.");
       }
+      if (writer_ && record_options_.repeated_transient_local) {
+        for (const auto & msg : transient_local_messages_) {
+          writer_->write(
+            msg.second, msg.first.first, msg.first.second,
+            node->get_clock()->now());
+        }
+      }
     }
   }
   RCLCPP_INFO(node->get_logger(), "Event publisher thread: Exiting");
@@ -660,8 +667,15 @@ RecorderImpl::create_subscription(
     topic_name,
     topic_type,
     qos,
-    [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message) {
+    [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message) {
       if (!paused_.load()) {
+        if (record_options_.repeated_transient_local &&
+        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        {
+          transient_local_messages_.insert_or_assign({topic_name, topic_type}, *message);
+          //log the message
+          RCLCPP_INFO_STREAM(node->get_logger(), "Received message for topic '" << topic_name << "'");
+        }
         writer_->write(message, topic_name, topic_type, node->get_clock()->now());
       }
     });
