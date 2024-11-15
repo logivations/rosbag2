@@ -15,6 +15,7 @@
 #include "rosbag2_transport/recorder.hpp"
 
 #include <algorithm>
+#include <map>
 #include <future>
 #include <memory>
 #include <regex>
@@ -142,6 +143,7 @@ public:
   rosbag2_transport::RecordOptions record_options_;
   std::atomic<bool> stop_discovery_ = false;
   std::unordered_map<std::string, std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
+  std::map<std::pair<std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
 
 private:
   void topics_discovery();
