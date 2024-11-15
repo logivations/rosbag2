@@ -432,6 +432,7 @@ void RecorderImpl::event_publisher_thread_main()
             msg.second, msg.first.first, msg.first.second,
             node->get_clock()->now());
         }
+        RCLCPP_INFO(node->get_logger(), "Replaying transient local message for topic %s", msg.first.first.c_str());
       }
     }
   }
