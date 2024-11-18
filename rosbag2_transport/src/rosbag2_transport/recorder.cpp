@@ -221,6 +221,8 @@ RecorderImpl::RecorderImpl(
   paused_(record_options.start_paused),
   keyboard_handler_(std::move(keyboard_handler))
 {
+  RCLCPP_INFO(node->get_logger(), "Entering RecorderImpl constructor");
+  std::cout << "Entering RecorderImpl constructor, logging via std::cout" << std::endl;
   if (record_options_.use_sim_time && record_options_.is_discovery_disabled) {
     throw std::runtime_error(
             "use_sim_time and is_discovery_disabled both set, but are incompatible settings. "
@@ -432,7 +434,6 @@ void RecorderImpl::event_publisher_thread_main()
             msg.second, msg.first.first, msg.first.second,
             node->get_clock()->now());
         }
-        RCLCPP_INFO(node->get_logger(), "Replaying transient local message for topic %s", msg.first.first.c_str());
       }
     }
   }
@@ -477,6 +478,7 @@ bool RecorderImpl::is_paused()
 
 void RecorderImpl::topics_discovery()
 {
+  RCLCPP_INFO(node->get_logger(), "Entering RecorderImpl function topics_discovery");
   // If using sim time - wait until /clock topic received before even creating subscriptions
   if (record_options_.use_sim_time) {
     RCLCPP_INFO(
@@ -490,7 +492,9 @@ void RecorderImpl::topics_discovery()
     if (node->get_clock()->started()) {
       RCLCPP_INFO(node->get_logger(), "Sim time /clock found, starting recording.");
     }
+    RCLCPP_INFO(node->get_logger(), "Logging some text in line 496");
   }
+  RCLCPP_INFO(node->get_logger(), "Logging more in line 498");
    auto start = node->get_clock()->now();
   // Todo: make this a parameter
   auto timeout = record_options_.timeout_for_delay; // seconds
