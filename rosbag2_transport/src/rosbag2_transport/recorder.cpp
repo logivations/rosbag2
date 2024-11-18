@@ -434,6 +434,7 @@ void RecorderImpl::event_publisher_thread_main()
             msg.second, msg.first.first, msg.first.second,
             node->get_clock()->now());
         }
+  RCLCPP_INFO(node->get_logger(), "pubs split maeagseasf");
       }
     }
   }
@@ -605,10 +606,13 @@ RecorderImpl::create_subscription(
       auto subscription = node->create_subscription<MSG_TYPE>( \
         topic_name, \
         qos, \
-        [this, topic_name, topic_type, serializer](const MSG_TYPE::ConstSharedPtr message) { \
+        [this, topic_name, topic_type, serializer, qos](const MSG_TYPE::ConstSharedPtr message) { \
           rclcpp::SerializedMessage serialized_msg; \
           serializer->serialize_message(message.get(), &serialized_msg); \
           if (!paused_.load()) { \
+            if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
+              transient_local_messages_.insert_or_assign({topic_name, topic_type}, serialized_msg); \
+            } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
         }); \
