@@ -432,6 +432,11 @@ void RecorderImpl::event_publisher_thread_main()
             msg.second, msg.first.first, msg.first.second,
             node->get_clock()->now());
         }
+        RCLCPP_INFO(node->get_logger(), "writer wrote %d transient local messages", transient_local_messages_.size());
+        RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
+        for (const auto & msg : transient_local_messages_) {
+          RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", msg.first.first.c_str(), msg.first.second.c_str());
+        }
       }
     }
   }
