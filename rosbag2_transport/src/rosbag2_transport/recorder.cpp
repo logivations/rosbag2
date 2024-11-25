@@ -143,7 +143,7 @@ public:
   rosbag2_transport::RecordOptions record_options_;
   std::atomic<bool> stop_discovery_ = false;
   std::unordered_map<std::string, std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
-  std::map<std::pair<std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
+  std::map<std::tuple<std::string, std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
 
 private:
   void topics_discovery();
@@ -429,14 +429,14 @@ void RecorderImpl::event_publisher_thread_main()
       if (writer_ && record_options_.repeated_transient_local) {
         for (const auto & msg : transient_local_messages_) {
           writer_->write(
-            msg.second, msg.first.first, msg.first.second,
+            msg.second, std::get<0>(msg.first), std::get<1>(msg.first),
             node->get_clock()->now());
         }
         RCLCPP_INFO(node->get_logger(), "writer wrote %d transient local messages", transient_local_messages_.size());
         RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
         for (const auto & msg : transient_local_messages_) {
-          RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", msg.first.first.c_str(), msg.first.second.c_str());
-          if (msg.first.first == "/tf_static")
+          RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", std::get<0>(msg.first).c_str(), std::get<1>(msg.first).c_str());
+          if (std::get<0>(msg.first).c_str() == "/tf_static")
           {
              tf2_msgs::msg::TFMessage tf_message;
             rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
@@ -627,7 +627,8 @@ RecorderImpl::create_subscription(
           serializer->serialize_message(message.get(), &serialized_msg); \
           if (!paused_.load()) { \
             if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
-              transient_local_messages_.insert_or_assign({topic_name, topic_type}, serialized_msg); \
+              auto publisher_id = "unknown"; \
+              transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), serialized_msg); \
             } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
@@ -699,7 +700,8 @@ RecorderImpl::create_subscription(
         if (record_options_.repeated_transient_local &&
         qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
         {
-          transient_local_messages_.insert_or_assign({topic_name, topic_type}, *message);
+          auto publisher_id = "unknown"; 
+          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), *message);
         }
         writer_->write(message, topic_name, topic_type, node->get_clock()->now());
       }
