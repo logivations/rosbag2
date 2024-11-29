@@ -431,6 +431,7 @@ void RecorderImpl::event_publisher_thread_main()
           writer_->write(
             msg.second, std::get<0>(msg.first), std::get<1>(msg.first),
             node->get_clock()->now());
+          RCLCPP_INFO(node->get_logger(), "first info that writer wrote to topic: %s", std::get<0>(msg.first).c_str());
         }
         RCLCPP_INFO(node->get_logger(), "writer wrote %d transient local messages", transient_local_messages_.size());
         RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
