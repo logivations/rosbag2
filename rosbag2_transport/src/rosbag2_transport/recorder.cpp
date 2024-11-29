@@ -631,6 +631,8 @@ RecorderImpl::create_subscription(
             if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
               auto publisher_id = "unknown"; \
               transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), serialized_msg); \
+              RCLCPP_INFO_STREAM(node->get_logger(), "Received message on topic '" << topic_name << "' with type '" << topic_type << "' and publisher id is'" << publisher_id << "'"); \
+              RCLCPP_INFO_STREAM(node->get_logger(), "Message is: " << message); \
             } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
