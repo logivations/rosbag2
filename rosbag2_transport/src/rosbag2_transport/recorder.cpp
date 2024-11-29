@@ -438,9 +438,11 @@ void RecorderImpl::event_publisher_thread_main()
           RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", std::get<0>(msg.first).c_str(), std::get<1>(msg.first).c_str());
           if (std::get<0>(msg.first).c_str() == "/tf_static")
           {
-             tf2_msgs::msg::TFMessage tf_message;
+            RCLCPP_INFO(node->get_logger(), "Deserializing tf_static message");
+            tf2_msgs::msg::TFMessage tf_message;
             rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
             try {
+                RCLCPP_INFO(node->get_logger(), "Logging tf_static message now!");
                 serializer.deserialize_message(&msg.second, &tf_message);
                 // Log deserialized message content
                 for (const auto & transform : tf_message.transforms) {
