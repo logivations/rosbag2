@@ -619,32 +619,27 @@ RecorderImpl::create_subscription(
   // the writer expects a serialized message, which usually comes directly from DDS
   // we have to do it manually here
   // use RCLCPP_INFO(node->get_logger(), "Received message with address: %p", static_cast<const void*>(message.get())); \ to validate
-std::map<std::tuple<std::string, std::string>, uint64_t> publisher_ids;
-
-#define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
-  if (topic_type == MSG_TYPE_STR) { \
-    auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
-    auto subscription = node->create_subscription<MSG_TYPE>( \
-      topic_name, \
-      qos, \
-      [this, topic_name, topic_type, serializer, qos](const MSG_TYPE::ConstSharedPtr message) { \
-        rclcpp::SerializedMessage serialized_msg; \
-        serializer->serialize_message(message.get(), &serialized_msg); \
-        if (!paused_.load()) { \
-          if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
-            auto publisher_id = publisher_ids[std::make_tuple(topic_name, topic_type)]; \
-            transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), serialized_msg); \
-            RCLCPP_INFO_STREAM(node->get_logger(), "Received message on topic '" << topic_name << "' with type '" << topic_type << "' and publisher id is'" << publisher_id << "'"); \
-            RCLCPP_INFO_STREAM(node->get_logger(), "Message is: " << message); \
+  #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
+    if (topic_type == MSG_TYPE_STR) { \
+      auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
+      auto subscription = node->create_subscription<MSG_TYPE>( \
+        topic_name, \
+        qos, \
+        [this, topic_name, topic_type, serializer, qos](const MSG_TYPE::ConstSharedPtr message) { \
+          rclcpp::SerializedMessage serialized_msg; \
+          serializer->serialize_message(message.get(), &serialized_msg); \
+          if (!paused_.load()) { \
+            if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
+              auto publisher_id = rclcpp::Subscription::get_publisher_id(); \
+              transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), serialized_msg); \
+              RCLCPP_INFO_STREAM(node->get_logger(), "Received message on topic '" << topic_name << "' with type '" << topic_type << "' and publisher id is'" << publisher_id << "'"); \
+              RCLCPP_INFO_STREAM(node->get_logger(), "Message is: " << message); \
+            } \
+            writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
-          writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
-        } \
-      }); \
-    // Store publisher_id for the topic
-    publisher_ids[std::make_tuple(topic_name, topic_type)] = publisher_id; \
-    return subscription; \
-  }
-
+        }); \
+      return subscription; \
+    }
   // List of all message types with their corresponding string representations
   CREATE_SUBSCRIPTION(std_msgs::msg::Float64, "std_msgs/msg/Float64")
   CREATE_SUBSCRIPTION(tf2_msgs::msg::TFMessage, "tf2_msgs/msg/TFMessage")
