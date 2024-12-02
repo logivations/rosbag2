@@ -437,8 +437,8 @@ void RecorderImpl::event_publisher_thread_main()
         RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
         for (const auto & msg : transient_local_messages_) {
           RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", std::get<0>(msg.first).c_str(), std::get<1>(msg.first).c_str());
-          const auto topic = std::get<0>(msg.first).c_str()
-          const auto topic2 = *std::get<0>(msg.first).c_str()
+          const auto topic = std::get<0>(msg.first).c_str();
+          const auto topic2 = *std::get<0>(msg.first).c_str();
           tf2_msgs::msg::TFMessage tf_message;
           rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
           try {
