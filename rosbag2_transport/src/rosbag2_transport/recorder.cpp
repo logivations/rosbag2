@@ -701,25 +701,19 @@ RecorderImpl::create_subscription(
   #undef CREATE_SUBSCRIPTION
 
   // Fallback generic subscription
-  RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
+RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
   auto subscription = node->create_generic_subscription(
     topic_name,
     topic_type,
     qos,
-    [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message, const rclcpp::MessageInfo & message_info) {
+    [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message) {
       if (!paused_.load()) {
         if (record_options_.repeated_transient_local &&
-        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL){
-          auto message_information = [&]() -> std::string {
-              std::ostringstream oss;
-              const auto & gid = message_info.get_rmw_message_info().publisher_gid;
-              for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) {
-                oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]);
-              }
-              return oss.str();
-            }();
-          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), *message);
-          }
+        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        {
+          auto publisher_id = "unknown"; 
+          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), *message);
+        }
         writer_->write(message, topic_name, topic_type, node->get_clock()->now());
       }
     });
