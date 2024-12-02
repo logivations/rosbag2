@@ -437,25 +437,20 @@ void RecorderImpl::event_publisher_thread_main()
         RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
         for (const auto & msg : transient_local_messages_) {
           RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", std::get<0>(msg.first).c_str(), std::get<1>(msg.first).c_str());
-          if (std::get<0>(msg.first).c_str() == "/tf_static")
-          {
-            RCLCPP_INFO(node->get_logger(), "Deserializing tf_static message");
-            tf2_msgs::msg::TFMessage tf_message;
-            rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
-            try {
-                RCLCPP_INFO(node->get_logger(), "Logging tf_static message now!");
-                serializer.deserialize_message(&msg.second, &tf_message);
-                // Log deserialized message content
-                for (const auto & transform : tf_message.transforms) {
-                    RCLCPP_INFO(node->get_logger(), 
-                                "Frame ID: %s, Child Frame ID: %s", 
-                                transform.header.frame_id.c_str(),
-                                transform.child_frame_id.c_str());
-                }
-            } catch (const std::exception & e) {
-                RCLCPP_ERROR(node->get_logger(), "Failed to deserialize tf_static message: %s", e.what());
-            }
-          }
+          const auto topic = std::get<0>(msg.first).c_str()
+          const auto topic2 = *std::get<0>(msg.first).c_str()
+          tf2_msgs::msg::TFMessage tf_message;
+          rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
+          try {
+              serializer.deserialize_message(&msg.second, &tf_message);
+              // Log deserialized message content
+              for (const auto & transform : tf_message.transforms) {
+                  RCLCPP_INFO(node->get_logger(), 
+                              "Frame ID: %s, Child Frame ID: %s", 
+                              transform.header.frame_id.c_str(),
+                              transform.child_frame_id.c_str());
+              }
+          } catch (const std::exception & e) {   }
         }
       }
     }
