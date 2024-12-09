@@ -634,6 +634,7 @@ RecorderImpl::create_subscription(
                 return oss.str(); \
               }(); \
               transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), serialized_msg); \
+              RCLCPP_INFO(node->get_logger(), "Tried inserting this message to the transient local messages: %s", message_information.c_str()); \
             } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
