@@ -431,26 +431,12 @@ void RecorderImpl::event_publisher_thread_main()
           writer_->write(
             msg.second, std::get<0>(msg.first), std::get<1>(msg.first),
             node->get_clock()->now());
-          RCLCPP_INFO(node->get_logger(), "first info that writer wrote to topic: %s", std::get<0>(msg.first).c_str());
         }
-        RCLCPP_INFO(node->get_logger(), "writer wrote %d transient local messages", transient_local_messages_.size());
-        RCLCPP_INFO(node->get_logger(), "writer wrote to those topics:");
         for (const auto & msg : transient_local_messages_) {
-          RCLCPP_INFO(node->get_logger(), "topic: %s, type: %s", std::get<0>(msg.first).c_str(), std::get<1>(msg.first).c_str());
           const auto topic = std::get<0>(msg.first).c_str();
           const auto topic2 = *std::get<0>(msg.first).c_str();
           tf2_msgs::msg::TFMessage tf_message;
           rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
-          try {
-              serializer.deserialize_message(&msg.second, &tf_message);
-              // Log deserialized message content
-              for (const auto & transform : tf_message.transforms) {
-                  RCLCPP_INFO(node->get_logger(), 
-                              "Frame ID: %s, Child Frame ID: %s", 
-                              transform.header.frame_id.c_str(),
-                              transform.child_frame_id.c_str());
-              }
-          } catch (const std::exception & e) {   }
         }
       }
     }
@@ -614,7 +600,7 @@ RecorderImpl::create_subscription(
   // the writer expects a serialized message, which usually comes directly from DDS
   // we have to do it manually here
   // use RCLCPP_INFO(node->get_logger(), "Received message with address: %p", static_cast<const void*>(message.get())); \ to validate
-#define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
+  #define CREATE_SUBSCRIPTION(MSG_TYPE, MSG_TYPE_STR) \
     if (topic_type == MSG_TYPE_STR) { \
       auto serializer = std::make_shared<rclcpp::Serialization<MSG_TYPE>>(); \
       auto subscription = node->create_subscription<MSG_TYPE>( \
@@ -634,14 +620,12 @@ RecorderImpl::create_subscription(
                 return oss.str(); \
               }(); \
               transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), serialized_msg); \
-              RCLCPP_INFO(node->get_logger(), "Tried inserting this message to the transient local messages: %s", message_information.c_str()); \
             } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
         }); \
       return subscription; \
     }
-
   // List of all message types with their corresponding string representations
   CREATE_SUBSCRIPTION(std_msgs::msg::Float64, "std_msgs/msg/Float64")
   CREATE_SUBSCRIPTION(tf2_msgs::msg::TFMessage, "tf2_msgs/msg/TFMessage")
@@ -697,7 +681,7 @@ RecorderImpl::create_subscription(
   #undef CREATE_SUBSCRIPTION
 
   // Fallback generic subscription
-RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
+  RCLCPP_INFO_STREAM(node->get_logger(), "Fallback subscription to topic '" << topic_name << "' with type '" << topic_type << "'");
   auto subscription = node->create_generic_subscription(
     topic_name,
     topic_type,
