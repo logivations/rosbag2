@@ -15,6 +15,7 @@
 #include "rosbag2_transport/recorder.hpp"
 
 #include <algorithm>
+#include <map>
 #include <future>
 #include <memory>
 #include <regex>
@@ -142,6 +143,7 @@ public:
   rosbag2_transport::RecordOptions record_options_;
   std::atomic<bool> stop_discovery_ = false;
   std::unordered_map<std::string, std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
+  std::map<std::tuple<std::string, std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
 
 private:
   void topics_discovery();
@@ -424,6 +426,19 @@ void RecorderImpl::event_publisher_thread_main()
           node->get_logger(),
           "Failed to publish message on '/events/write_split' topic.");
       }
+      if (writer_ && record_options_.repeated_transient_local) {
+        for (const auto & msg : transient_local_messages_) {
+          writer_->write(
+            msg.second, std::get<0>(msg.first), std::get<1>(msg.first),
+            node->get_clock()->now());
+        }
+        for (const auto & msg : transient_local_messages_) {
+          const auto topic = std::get<0>(msg.first).c_str();
+          const auto topic2 = *std::get<0>(msg.first).c_str();
+          tf2_msgs::msg::TFMessage tf_message;
+          rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
+        }
+      }
     }
   }
   RCLCPP_INFO(node->get_logger(), "Event publisher thread: Exiting");
@@ -591,10 +606,21 @@ RecorderImpl::create_subscription(
       auto subscription = node->create_subscription<MSG_TYPE>( \
         topic_name, \
         qos, \
-        [this, topic_name, topic_type, serializer](const MSG_TYPE::ConstSharedPtr message) { \
+        [this, topic_name, topic_type, serializer, qos](const MSG_TYPE::ConstSharedPtr message, const rclcpp::MessageInfo & message_info) { \
           rclcpp::SerializedMessage serialized_msg; \
           serializer->serialize_message(message.get(), &serialized_msg); \
           if (!paused_.load()) { \
+            if (record_options_.repeated_transient_local && qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL) { \
+              auto message_information = [&]() -> std::string { \
+                std::ostringstream oss; \
+                const auto & gid = message_info.get_rmw_message_info().publisher_gid; \
+                for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) { \
+                  oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]); \
+                } \
+                return oss.str(); \
+              }(); \
+              transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), serialized_msg); \
+            } \
             writer_->write(serialized_msg, topic_name, topic_type, node->get_clock()->now()); \
           } \
         }); \
@@ -660,8 +686,14 @@ RecorderImpl::create_subscription(
     topic_name,
     topic_type,
     qos,
-    [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message) {
+    [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message) {
       if (!paused_.load()) {
+        if (record_options_.repeated_transient_local &&
+        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        {
+          auto publisher_id = "unknown"; 
+          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, publisher_id), *message);
+        }
         writer_->write(message, topic_name, topic_type, node->get_clock()->now());
       }
     });
