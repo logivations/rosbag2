@@ -50,6 +50,7 @@
 #include "tf2_msgs/msg/tf_message.hpp"
 #include <std_msgs/msg/float64.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/polygon_instance_stamped.hpp>
 #include <nav2_msgs/msg/speed_limit.hpp>
 #include <amr_interfaces/msg/flexi_soft_errors.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -69,7 +70,6 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <amr_interfaces/msg/laser_scanner_field_set.hpp>
 #include <sensor_msgs/msg/joy.hpp>
-#include <nav2_msgs/msg/polygons_array.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <nav2_msgs/msg/behavior_tree_log.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
@@ -652,7 +652,6 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(geometry_msgs::msg::PoseWithCovarianceStamped, "geometry_msgs/msg/PoseWithCovarianceStamped")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::LaserScannerFieldSet, "amr_interfaces/msg/LaserScannerFieldSet")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::Joy, "sensor_msgs/msg/Joy")
-  CREATE_SUBSCRIPTION(nav2_msgs::msg::PolygonsArray, "nav2_msgs/msg/PolygonsArray")
   CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticStatus, "diagnostic_msgs/msg/DiagnosticStatus")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::BehaviorTreeLog, "nav2_msgs/msg/BehaviorTreeLog")
   CREATE_SUBSCRIPTION(diagnostic_msgs::msg::DiagnosticArray, "diagnostic_msgs/msg/DiagnosticArray")
@@ -660,6 +659,7 @@ RecorderImpl::create_subscription(
   CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrBatteryStateArray, "amr_interfaces/msg/AmrBatteryStateArray")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionMonitorState, "nav2_msgs/msg/CollisionMonitorState")
   CREATE_SUBSCRIPTION(nav2_msgs::msg::CollisionDetectorState, "nav2_msgs/msg/CollisionDetectorState")
+  CREATE_SUBSCRIPTION(geometry_msgs::msg::PolygonInstanceStamped, "geometry_msgs/msg/PolygonInstanceStamped")
   CREATE_SUBSCRIPTION(sensor_msgs::msg::JointState, "sensor_msgs/msg/JointState")
   CREATE_SUBSCRIPTION(amr_interfaces::msg::AmrError, "amr_interfaces/msg/AmrError")
   CREATE_SUBSCRIPTION(std_msgs::msg::Bool, "std_msgs/msg/Bool")
