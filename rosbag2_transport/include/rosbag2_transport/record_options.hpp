@@ -54,6 +54,7 @@ public:
   /// and THREAD_PRIORITY_NORMAL=0. For POSIX compatible OSes this is the "nice" value.
   /// The nice value range is -20 to +19 where -20 is highest, 0 default and +19 is lowest.
   int32_t compression_threads_priority = 0;
+  float timeout_for_delay = 90.0;
   std::unordered_map<std::string, rclcpp::QoS> topic_qos_profile_overrides{};
   bool include_hidden_topics = false;
   bool include_unpublished_topics = false;
@@ -61,6 +62,7 @@ public:
   bool start_paused = false;
   bool use_sim_time = false;
   bool disable_keyboard_controls = false;
+  bool repeated_transient_local = false;
 };
 
 }  // namespace rosbag2_transport

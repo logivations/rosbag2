@@ -343,6 +343,10 @@ RecordOptions get_record_options_from_node_params(rclcpp::Node & node)
             "'use_sim_time' and 'is_discovery_disabled' both set, but are incompatible settings. "
             "The `/clock` topic needs to be discovered to record with sim time.");
   }
+  record_options.timeout_for_delay = node.declare_parameter<float>("record.timeout_for_delay", 90.0);
+
+  record_options.repeated_transient_local =
+    node.declare_parameter<bool>("record.repeated_transient_local", false);
   return record_options;
 }
 

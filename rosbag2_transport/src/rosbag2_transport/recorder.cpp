@@ -15,6 +15,7 @@
 #include "rosbag2_transport/recorder.hpp"
 
 #include <algorithm>
+#include <map>
 #include <future>
 #include <memory>
 #include <regex>
@@ -95,6 +96,7 @@ public:
   rosbag2_storage::StorageOptions storage_options_;
   rosbag2_transport::RecordOptions record_options_;
   std::unordered_map<std::string, std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
+  std::map<std::tuple<std::string, std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
 
 private:
   void topics_discovery();
@@ -393,6 +395,13 @@ void RecorderImpl::event_publisher_thread_main()
           node->get_logger(),
           "Failed to publish message on '/events/write_split' topic.");
       }
+      if (writer_ && record_options_.repeated_transient_local) {
+        for (const auto & msg : transient_local_messages_) {
+          writer_->write(
+            msg.second, std::get<0>(msg.first), std::get<1>(msg.first),
+            node->get_clock()->now());
+        }
+      }
     }
   }
   RCLCPP_INFO(node->get_logger(), "Event publisher thread: Exiting");
@@ -489,7 +498,24 @@ void RecorderImpl::topics_discovery()
       RCLCPP_INFO(node->get_logger(), "Sim time /clock found, starting recording.");
     }
   }
+
+   auto start = node->get_clock()->now();
+  auto timeout = record_options_.timeout_for_delay; // seconds
+
   while (rclcpp::ok() && discovery_running_) {
+   if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
+    /* while not all topics from the topic whitelist are matched, rosbag recorder will check in some interval
+       for the remaining topics.
+       I suppose that due to the distributed nature of ROS2 DDS, this has to connect to all nodes and fetch all their topics.
+       It is thus very CPU-intensive (1 second, 100% of a CPU)
+       While this is not a problem if the whitelist exactly matches the available topics, this creates a maintenance risk:
+       as soon as a topic from the whitelist is removed, these spikes will occur.
+       So, as a compromise, stop discovery after some timeout */
+      RCLCPP_INFO(
+        node->get_logger(),
+        "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
+      return;
+     }
     try {
       if (!record_options_.topics.empty() &&
         subscriptions_.size() == record_options_.topics.size())
@@ -566,7 +592,6 @@ void RecorderImpl::subscribe_topic(const rosbag2_storage::TopicMetadata & topic)
   auto subscription = create_subscription(topic.name, topic.type, subscription_qos);
   if (subscription) {
     subscriptions_.insert({topic.name, subscription});
-    RCLCPP_INFO_STREAM(node->get_logger(), "Subscribed to topic '" << topic.name << "'");
   } else {
     writer_->remove_topic(topic);
   }
@@ -600,9 +625,22 @@ RecorderImpl::create_subscription(
       topic_name,
       topic_type,
       qos,
-      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
+      [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message,
       const rclcpp::MessageInfo & mi) {
         if (!paused_.load()) {
+        if (record_options_.repeated_transient_local &&
+        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        {
+          auto message_information = [&]() -> std::string {
+                std::ostringstream oss;
+                const auto & gid = mi.get_rmw_message_info().publisher_gid;
+                for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) {
+                  oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]);
+                }
+                return oss.str();
+              }();
+          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), *message);
+        }
           writer_->write(
             std::move(message), topic_name, topic_type, node->now().nanoseconds(),
             mi.get_rmw_message_info().source_timestamp);
@@ -613,9 +651,24 @@ RecorderImpl::create_subscription(
       topic_name,
       topic_type,
       qos,
-      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
+      [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message,
       const rclcpp::MessageInfo & mi) {
         if (!paused_.load()) {
+
+        if (record_options_.repeated_transient_local &&
+        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
+        {
+          auto message_information = [&]() -> std::string {
+                std::ostringstream oss;
+                const auto & gid = mi.get_rmw_message_info().publisher_gid;
+                for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) {
+                  oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]);
+                }
+                return oss.str();
+              }();
+          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), *message);
+        }
+
           writer_->write(
             std::move(message), topic_name, topic_type,
             mi.get_rmw_message_info().received_timestamp,

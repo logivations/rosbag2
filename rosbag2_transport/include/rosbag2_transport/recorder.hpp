@@ -16,6 +16,7 @@
 #define ROSBAG2_TRANSPORT__RECORDER_HPP_
 
 #include <future>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -177,6 +178,7 @@ protected:
 
 private:
   std::unique_ptr<RecorderImpl> pimpl_;
+  std::map<std::pair<std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
 };
 
 ROSBAG2_TRANSPORT_PUBLIC std::string type_hash_to_string(const rosidl_type_hash_t & type_hash);
