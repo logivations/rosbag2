@@ -122,7 +122,7 @@ void SequentialWriter::open(
   }
 
   fs::path storage_path(storage_options.uri);
-  if (!storage_path.is_directory()) {
+  if (fs::is_directory(storage_path)) {
       bool dir_created = fs::create_directories(storage_path);
       if (!dir_created) {
         std::stringstream error;
