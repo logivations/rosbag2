@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include <algorithm>
-#include <map>
 #include <chrono>
 #include <future>
 #include <memory>
@@ -105,7 +104,6 @@ public:
   rosbag2_storage::StorageOptions storage_options_;
   rosbag2_transport::RecordOptions record_options_;
   std::unordered_map<std::string, std::shared_ptr<rclcpp::SubscriptionBase>> subscriptions_;
-  std::map<std::tuple<std::string, std::string, std::string>, rclcpp::SerializedMessage> transient_local_messages_;
   Recorder::OnStartRecordingCallback on_start_recording_callback_{};
 
 private:
@@ -790,22 +788,9 @@ RecorderImpl::create_subscription(
       topic_name,
       topic_type,
       qos,
-      [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message,
+      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
       const rclcpp::MessageInfo & mi) {
         if (!paused_.load()) {
-        if (record_options_.repeated_transient_local &&
-        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
-        {
-          auto message_information = [&]() -> std::string {
-                std::ostringstream oss;
-                const auto & gid = mi.get_rmw_message_info().publisher_gid;
-                for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) {
-                  oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]);
-                }
-                return oss.str();
-              }();
-          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), *message);
-        }
           writer_->write(
             std::move(message), topic_name, topic_type, node->now().nanoseconds(),
             mi.get_rmw_message_info().source_timestamp);
@@ -817,24 +802,9 @@ RecorderImpl::create_subscription(
       topic_name,
       topic_type,
       qos,
-      [this, topic_name, topic_type, qos](std::shared_ptr<const rclcpp::SerializedMessage> message,
+      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
       const rclcpp::MessageInfo & mi) {
         if (!paused_.load()) {
-
-        if (record_options_.repeated_transient_local &&
-        qos.get_rmw_qos_profile().durability == RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
-        {
-          auto message_information = [&]() -> std::string {
-                std::ostringstream oss;
-                const auto & gid = mi.get_rmw_message_info().publisher_gid;
-                for (size_t i = 0; i < RMW_GID_STORAGE_SIZE; ++i) {
-                  oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(gid.data[i]);
-                }
-                return oss.str();
-              }();
-          transient_local_messages_.insert_or_assign(std::make_tuple(topic_name, topic_type, message_information), *message);
-        }
-
           writer_->write(
             std::move(message), topic_name, topic_type,
             mi.get_rmw_message_info().received_timestamp,

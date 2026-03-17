@@ -220,10 +220,6 @@ def add_recorder_arguments(parser: ArgumentParser) -> None:
         choices=get_registered_compressors(),
         help='Choose the compression format/algorithm. '
              'Has no effect if no compression mode is chosen. Default: %(default)s.')
-    parser.add_argument(
-            '--repeated-transient-local', action='store_true', default=False,
-            help='Repeat transient local messages at the start of each new bag file.'
-        )
 
 
 def check_necessary_argument(args):
@@ -381,8 +377,6 @@ class RecordVerb(VerbExtension):
 
         # Convert service name to service event topic name
         record_options.services = convert_service_to_service_event_topic(args.services)
-        record_options.repeated_transient_local = args.repeated_transient_local
-
         recorder = Recorder(storage_options, record_options, args.log_level, args.node_name)
 
         signal.signal(signal.SIGTERM, signal_handler)
