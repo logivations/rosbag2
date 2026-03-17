@@ -60,7 +60,6 @@ public:
   /// and THREAD_PRIORITY_NORMAL=0. For POSIX compatible OSes this is the "nice" value.
   /// The nice value range is -20 to +19 where -20 is highest, 0 default and +19 is lowest.
   int32_t compression_threads_priority = 0;
-  float timeout_for_delay = 90.0;
   /// \brief Path to a YAML file containing topic QoS profile overrides.
   /// The YAML file must map topic names to rclcpp::QoS profiles.
   std::unordered_map<std::string, rclcpp::QoS> topic_qos_profile_overrides{};
@@ -79,6 +78,7 @@ public:
   /// \brief Disable keyboard controls if true. This parameter is only used during construction of
   /// the Recorder class to decide whether to initialize KeyboardHandler class or not.
   bool disable_keyboard_controls = false;
+  float timeout_for_delay = 90.0;
 };
 
 }  // namespace rosbag2_transport
