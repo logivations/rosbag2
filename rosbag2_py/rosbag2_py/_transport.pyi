@@ -102,6 +102,7 @@ class RecordOptions:
     topic_types: List[str]
     topics: List[str]
     use_sim_time: bool
+    timeout_for_delay: float
     def __init__(self) -> None: ...
 
 class Recorder:
