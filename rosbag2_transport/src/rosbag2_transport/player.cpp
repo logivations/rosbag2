@@ -1741,6 +1741,10 @@ void PlayerImpl::publish_clock_update()
 
 void PlayerImpl::publish_clock_update(const rclcpp::Time & time)
 {
+  if (shall_stop_at_timestamp(time.nanoseconds())) {
+    return;
+  }
+
   if (clock_publisher_->can_loan_messages()) {
     auto loaned_timestamp{clock_publisher_->borrow_loaned_message()};
     loaned_timestamp.get().clock = time;
