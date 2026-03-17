@@ -660,7 +660,6 @@ void RecorderImpl::topics_discovery() noexcept
         "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
       return;
      }
-    try {
       if (!record_options_.topics.empty() &&
         subscriptions_.size() == record_options_.topics.size())
       {
