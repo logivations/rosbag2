@@ -108,6 +108,48 @@ std::shared_ptr<rosbag2_storage::SerializedBagMessage> make_test_msg()
   return message;
 }
 
+TEST_F(SequentialWriterTest, create_topic_does_not_throw_if_writer_not_open) {
+  auto sequential_writer = std::make_unique<rosbag2_cpp::writers::SequentialWriter>(
+    std::move(storage_factory_), converter_factory_, std::move(metadata_io_));
+  writer_ = std::make_unique<rosbag2_cpp::Writer>(std::move(sequential_writer));
+
+  rosbag2_storage::TopicMetadata topic_metadata{0u, "topic1", "test_msgs/BasicTypes", "", {}, ""};
+
+  EXPECT_NO_THROW(writer_->create_topic(topic_metadata));
+}
+
+TEST_F(SequentialWriterTest, remove_topic_does_not_throw_if_writer_not_open) {
+  auto sequential_writer = std::make_unique<rosbag2_cpp::writers::SequentialWriter>(
+    std::move(storage_factory_), converter_factory_, std::move(metadata_io_));
+  writer_ = std::make_unique<rosbag2_cpp::Writer>(std::move(sequential_writer));
+
+  rosbag2_storage::TopicMetadata topic_metadata{0u, "topic1", "test_msgs/BasicTypes", "", {}, ""};
+
+  EXPECT_NO_THROW(writer_->create_topic(topic_metadata));
+  EXPECT_NO_THROW(writer_->remove_topic(topic_metadata));
+}
+
+TEST_F(SequentialWriterTest, topics_persist_between_close_and_open) {
+  auto sequential_writer = std::make_unique<rosbag2_cpp::writers::SequentialWriter>(
+    std::move(storage_factory_), converter_factory_, std::move(metadata_io_));
+  writer_ = std::make_unique<rosbag2_cpp::Writer>(std::move(sequential_writer));
+
+  auto test_message = make_test_msg();
+  rosbag2_storage::TopicMetadata topic_metadata {
+    0U, test_message->topic_name, "test_msgs/BasicTypes", "", {}, ""
+  };
+
+  writer_->create_topic(topic_metadata);
+  writer_->open(storage_options_);
+  writer_->close();
+
+  // Reopen the writer and verify the topic still exists. i.e., writing a message without
+  // recreating the topic.
+  storage_options_.uri += "(1)";  // Add suffix to create a new bag folder in the scope of the test
+  writer_->open(storage_options_);
+  EXPECT_NO_THROW(writer_->write(test_message));
+}
+
 TEST_F(
   SequentialWriterTest,
   write_uses_converters_to_convert_serialization_format_if_input_and_output_format_are_different) {
@@ -499,7 +541,7 @@ TEST_F(SequentialWriterTest, do_not_use_cache_if_cache_size_is_zero) {
 TEST_F(SequentialWriterTest, snapshot_mode_write_on_trigger)
 {
   storage_options_.max_bagfile_size = 0;
-  storage_options_.max_cache_size = 200;
+  storage_options_.max_cache_size = 700;
   storage_options_.snapshot_mode = true;
 
   // Expect a single write call when the snapshot is triggered
@@ -534,7 +576,7 @@ TEST_F(SequentialWriterTest, snapshot_mode_write_on_trigger)
 TEST_F(SequentialWriterTest, snapshot_mode_not_triggered_no_storage_write)
 {
   storage_options_.max_bagfile_size = 0;
-  storage_options_.max_cache_size = 200;
+  storage_options_.max_cache_size = 700;
   storage_options_.snapshot_mode = true;
 
   // Storage should never be written to when snapshot mode is enabled
@@ -583,10 +625,10 @@ TEST_F(SequentialWriterTest, snapshot_mode_zero_cache_size_throws_exception)
 TEST_F(SequentialWriterTest, snapshot_writes_to_new_file_with_bag_split)
 {
   storage_options_.max_bagfile_size = 0;
-  storage_options_.max_cache_size = 200;
+  storage_options_.max_cache_size = 700;
   storage_options_.snapshot_mode = true;
   const rcutils_time_point_value_t first_msg_timestamp = 100;
-  const size_t num_msgs_to_write = 100;
+  const size_t num_msgs_to_write = 150;
   const std::string topic_name = "test_topic";
   std::string msg_content = "Hello";
   const size_t serialized_msg_buffer_length = msg_content.length();
@@ -706,7 +748,7 @@ TEST_F(SequentialWriterTest, snapshot_writes_to_new_file_with_bag_split)
 TEST_F(SequentialWriterTest, snapshot_can_be_called_twice)
 {
   storage_options_.max_bagfile_size = 0;
-  storage_options_.max_cache_size = 200;
+  storage_options_.max_cache_size = 700;
   storage_options_.snapshot_mode = true;
   const size_t num_msgs_to_write = 100;
 

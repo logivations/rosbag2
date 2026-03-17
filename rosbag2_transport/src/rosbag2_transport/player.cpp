@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rosbag2_transport/player.hpp"
-
 #include <algorithm>
 #include <chrono>
 #include <limits>
@@ -38,8 +36,10 @@
 #include "rosbag2_storage/storage_filter.hpp"
 #include "rosbag2_storage/qos.hpp"
 #include "rosbag2_transport/config_options_from_node_params.hpp"
+#include "rosbag2_transport/player.hpp"
 #include "rosbag2_transport/player_service_client.hpp"
 #include "rosbag2_transport/reader_writer_factory.hpp"
+#include "rosbag2_transport/readers_manager.hpp"
 
 #include "logging.hpp"
 #include "locked_priority_queue.hpp"
@@ -114,6 +114,14 @@ public:
 
   /// Return whether the playback is currently paused.
   bool is_paused() const;
+
+  /// \brief Getter method for starting time of the playback.
+  /// \return Returns timestamp of the first message in nanoseconds.
+  rcutils_time_point_value_t get_starting_time() const;
+
+  /// \brief Getter method for playback duration
+  /// \return Returns duration of the playback in nanoseconds.
+  rcutils_duration_value_t get_playback_duration() const;
 
   /// Return current playback rate.
   double get_rate() const;
@@ -218,7 +226,7 @@ public:
   size_t get_number_of_registered_on_play_msg_post_callbacks();
 
   /// \brief Getter for the first of the currently stored storage options
-  /// \return Copy of the first of the currently stored storage options
+  /// \return Reference to the first of the currently stored storage options
   const rosbag2_storage::StorageOptions & get_storage_options();
 
   /// \brief Getter for the currently stored storage options
@@ -288,10 +296,11 @@ private:
 private:
   rosbag2_storage::SerializedBagMessageSharedPtr take_next_message_from_queue();
   void load_storage_content();
+
+  /// \brief Returns true if storage_loading_future_ hasn't been launched or successfully finished
   bool is_storage_completely_loaded() const;
-  void enqueue_up_to_boundary(
-    const size_t boundary,
-    const size_t message_queue_size) RCPPUTILS_TSA_REQUIRES(reader_mutex_);
+  void enqueue_up_to_boundary(size_t boundary, size_t message_queue_size);
+
   void wait_for_filled_queue() const;
   void play_messages_from_queue();
   void prepare_publishers();
@@ -311,36 +320,29 @@ private:
   std::atomic_bool cancel_wait_for_next_message_{false};
   std::atomic_bool stop_playback_{false};
 
-  std::mutex reader_mutex_;
-  std::vector<reader_storage_options_pair_t> readers_with_options_ RCPPUTILS_TSA_GUARDED_BY(
-    reader_mutex_);
+  std::unique_ptr<ReadersManager> readers_;
 
   void publish_clock_update();
   void publish_clock_update(const rclcpp::Time & time);
 
   Player * owner_;
   rosbag2_transport::PlayOptions play_options_;
+  static constexpr const char * kDefaultReadSplitTopicName = "events/read_split";
   rcutils_time_point_value_t play_until_timestamp_ = -1;
-  using BagMessageComparator = std::function<
-    int(
-      const rosbag2_storage::SerializedBagMessageSharedPtr &,
-      const rosbag2_storage::SerializedBagMessageSharedPtr &)>;
-  LockedPriorityQueue<
-    rosbag2_storage::SerializedBagMessageSharedPtr,
-    std::vector<rosbag2_storage::SerializedBagMessageSharedPtr>,
-    BagMessageComparator> message_queue_;
+  LockedPriorityQueue<rosbag2_storage::SerializedBagMessageSharedPtr> message_queue_;
+  using BagMessageComparator =
+    LockedPriorityQueue<rosbag2_storage::SerializedBagMessageSharedPtr>::Comparator;
   mutable std::future<void> storage_loading_future_;
   std::atomic_bool load_storage_content_{true};
   std::unordered_map<std::string, rclcpp::QoS> topic_qos_profile_overrides_;
   std::unique_ptr<rosbag2_cpp::TimeControllerClock> clock_;
   std::shared_ptr<rclcpp::TimerBase> clock_publish_timer_;
-  std::mutex skip_message_in_main_play_loop_mutex_;
-  bool skip_message_in_main_play_loop_ RCPPUTILS_TSA_GUARDED_BY(
-    skip_message_in_main_play_loop_mutex_) = false;
+  std::mutex main_play_loop_mutex_;
+  bool skip_message_in_main_play_loop_ RCPPUTILS_TSA_GUARDED_BY(main_play_loop_mutex_) = false;
   std::mutex is_in_playback_mutex_;
   std::atomic_bool is_in_playback_ RCPPUTILS_TSA_GUARDED_BY(is_in_playback_mutex_) = false;
   std::thread playback_thread_;
-  std::condition_variable playback_finished_cv_;
+  std::condition_variable is_in_playback_cv_;
 
   // Request to play next
   std::atomic_bool play_next_{false};
@@ -351,7 +353,8 @@ private:
   // Whether we successfully played next
   std::atomic_bool play_next_result_{false};
 
-  rcutils_time_point_value_t starting_time_;
+  rcutils_time_point_value_t starting_time_ = 0;
+  rcutils_duration_value_t playback_duration_ = 0;
 
   // control services
   rclcpp::Service<rosbag2_interfaces::srv::Pause>::SharedPtr srv_pause_;
@@ -381,9 +384,12 @@ private:
       const rosbag2_storage::SerializedBagMessageSharedPtr & l,
       const rosbag2_storage::SerializedBagMessageSharedPtr & r) const
     {
-      return l->recv_timestamp > r->recv_timestamp;
+      return l->recv_timestamp > r->recv_timestamp;  // Smaller timestamp comes first
     }
   } bag_message_chronological_recv_timestamp_comparator;
+
+  // Note: The first_storage_options_ is used as a workaround for deprecated get_storage_options()
+  rosbag2_storage::StorageOptions first_storage_options_;
 };
 
 PlayerImpl::PlayerImpl(
@@ -391,13 +397,17 @@ PlayerImpl::PlayerImpl(
   std::vector<reader_storage_options_pair_t> && readers_with_options,
   std::shared_ptr<KeyboardHandler> keyboard_handler,
   const rosbag2_transport::PlayOptions & play_options)
-: readers_with_options_(std::move(readers_with_options)),
+: readers_(std::make_unique<ReadersManager>(std::move(readers_with_options))),
   owner_(owner),
   play_options_(play_options),
   message_queue_(bag_message_chronological_recv_timestamp_comparator),
   keyboard_handler_(std::move(keyboard_handler)),
   player_service_client_manager_(std::make_shared<PlayerServiceClientManager>())
 {
+  if (play_options_.read_ahead_queue_size < 1) {
+    throw std::invalid_argument("read_ahead_queue_size must be at least 1");
+  }
+
   for (auto & topic : play_options_.topics_to_filter) {
     topic = rclcpp::expand_topic_or_service_name(
       topic, owner_->get_name(),
@@ -422,62 +432,50 @@ PlayerImpl::PlayerImpl(
       owner_->get_namespace(), false);
   }
 
-  {
-    std::lock_guard<std::mutex> lk(reader_mutex_);
-    starting_time_ = std::numeric_limits<decltype(starting_time_)>::max();
-    for (const auto & [reader, storage_options] : readers_with_options_) {
-      // keep readers open until player is destroyed
-      reader->open(storage_options, {"", rmw_get_serialization_format()});
-      // Find earliest starting time
-      const auto metadata = reader->get_metadata();
-      const auto metadata_starting_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        metadata.starting_time.time_since_epoch()).count();
-      if (metadata_starting_time < starting_time_) {
-        starting_time_ = metadata_starting_time;
-      }
-    }
-    // If a non-default (positive) starting time offset is provided in PlayOptions,
-    // then add the offset to the starting time obtained from reader metadata
-    if (play_options_.start_offset < 0) {
-      RCLCPP_WARN_STREAM(
-        owner_->get_logger(),
-        "Invalid start offset value: " <<
-          RCUTILS_NS_TO_S(static_cast<double>(play_options_.start_offset)) <<
-          ". Negative start offset ignored.");
-    } else {
-      starting_time_ += play_options_.start_offset;
-    }
-    clock_ = std::make_unique<rosbag2_cpp::TimeControllerClock>(
-      starting_time_, std::chrono::steady_clock::now,
-      std::chrono::milliseconds{100}, play_options_.start_paused);
-    set_rate(play_options_.rate);
-    topic_qos_profile_overrides_ = play_options_.topic_qos_profile_overrides;
-    prepare_publishers();
-    configure_play_until_timestamp();
+  starting_time_ = readers_->get_earliest_timestamp();
+  const rcutils_time_point_value_t ending_time = readers_->get_latest_timestamp();
+  // If a non-default (positive) starting time offset is provided in PlayOptions,
+  // then add the offset to the starting time obtained from reader metadata
+  if (play_options_.start_offset < 0) {
+    RCLCPP_WARN_STREAM(
+      owner_->get_logger(),
+      "Invalid start offset value: " <<
+        RCUTILS_NS_TO_S(static_cast<double>(play_options_.start_offset)) <<
+        ". Negative start offset ignored.");
+  } else {
+    starting_time_ += play_options_.start_offset;
   }
+
+  playback_duration_ = ending_time - starting_time_;
+
+  clock_ = std::make_unique<rosbag2_cpp::TimeControllerClock>(
+    starting_time_, std::chrono::steady_clock::now,
+    std::chrono::milliseconds{100}, play_options_.start_paused);
+  set_rate(play_options_.rate);
+  topic_qos_profile_overrides_ = play_options_.topic_qos_profile_overrides;
+  prepare_publishers();
+  configure_play_until_timestamp();
+
   create_control_services();
   add_keyboard_callbacks();
 }
 
 PlayerImpl::~PlayerImpl()
 {
-  // Force to stop playback to avoid hangout in case of unexpected exception or when smart
-  // pointer to the player object goes out of scope
-  stop();
-
-  // remove callbacks on key_codes to prevent race conditions
+  // Remove callbacks from keyboard_handler_ to prevent race conditions.
   // Note: keyboard_handler handles locks between removing & executing callbacks
   if (keyboard_handler_) {
     for (auto cb_handle : keyboard_callbacks_) {
       keyboard_handler_->delete_key_press_callback(cb_handle);
     }
   }
-  // closes readers
-  std::lock_guard<std::mutex> lk(reader_mutex_);
-  for (const auto & [reader, _] : readers_with_options_) {
-    if (reader) {
-      reader->close();
-    }
+
+  // Force to stop playback to avoid hangout in case of unexpected exception or when smart
+  // pointer to the player object goes out of scope
+  stop();
+
+  if (playback_thread_.joinable()) {
+    playback_thread_.join();
   }
 }
 
@@ -496,16 +494,19 @@ bool PlayerImpl::is_storage_completely_loaded() const
 
 bool PlayerImpl::play()
 {
-  {
-    rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
-    if (is_in_playback_.exchange(true)) {
-      RCLCPP_WARN_STREAM(
-        owner_->get_logger(),
-        "Trying to play() while in playback, dismissing request.");
-      return false;
-    }
+  rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
+  if (is_in_playback_.exchange(true)) {
+    RCLCPP_WARN_STREAM(
+      owner_->get_logger(),
+      "Trying to play() while in playback, dismissing request.");
+    return false;
   }
+  is_in_playback_cv_.notify_all();
 
+  // May need to join the previous thread if we are calling play() a second time
+  if (playback_thread_.joinable()) {
+    playback_thread_.join();
+  }
   stop_playback_ = false;
 
   rclcpp::Duration delay(0, 0);
@@ -519,10 +520,6 @@ bool PlayerImpl::play()
 
   RCLCPP_INFO_STREAM(owner_->get_logger(), "Playback until timestamp: " << play_until_timestamp_);
 
-  // May need to join the previous thread if we are calling play() a second time
-  if (playback_thread_.joinable()) {
-    playback_thread_.join();
-  }
   playback_thread_ = std::thread(
     [&, delay]() {
       try {
@@ -533,43 +530,36 @@ bool PlayerImpl::play()
         }
         do {
           {
-            std::lock_guard<std::mutex> lk(reader_mutex_);
-            for (const auto & [reader, _] : readers_with_options_) {
-              reader->seek(starting_time_);
+            // By locking main_play_loop_mutex_ we make sure that seek(time_point) will not be
+            // called during cleaning message queue and loading storage in next iteration of play
+            // loop. i.e. in case when play_options_.loop = true
+            std::lock_guard<std::mutex> main_play_loop_lk(main_play_loop_mutex_);
+            load_storage_content_ = false;
+            if (storage_loading_future_.valid()) {storage_loading_future_.get();}
+            message_queue_.purge();
+            {
+              std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
+              is_ready_to_play_from_queue_ = false;
+              ready_to_play_from_queue_cv_.notify_all();
+            }
+            readers_->seek(starting_time_);
+
+            load_storage_content_ = true;
+            storage_loading_future_ = std::async(
+              std::launch::async, [this]() {
+                load_storage_content();
+              });
+            wait_for_filled_queue();
+
+            if (clock_publish_timer_ != nullptr) {
+              clock_publish_timer_->reset();
             }
             clock_->jump(starting_time_);
           }
-          if (clock_publish_timer_ != nullptr) {
-            clock_publish_timer_->reset();
-          }
-          load_storage_content_ = true;
-          storage_loading_future_ = std::async(
-            std::launch::async, [this]() {
-              load_storage_content();
-            });
-          wait_for_filled_queue();
           play_messages_from_queue();
-
-          load_storage_content_ = false;
-          if (storage_loading_future_.valid()) {storage_loading_future_.get();}
-          message_queue_.purge();
-          {
-            std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
-            is_ready_to_play_from_queue_ = false;
-            ready_to_play_from_queue_cv_.notify_all();
-          }
         } while (rclcpp::ok() && !stop_playback_ && play_options_.loop);
       } catch (const std::exception & e) {
         RCLCPP_ERROR(owner_->get_logger(), "Failed to play: %s", e.what());
-        load_storage_content_ = false;
-        if (storage_loading_future_.valid()) {storage_loading_future_.get();}
-        message_queue_.purge();
-      }
-
-      {
-        std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
-        is_ready_to_play_from_queue_ = false;
-        ready_to_play_from_queue_cv_.notify_all();
       }
 
       // Wait for all published messages to be acknowledged.
@@ -598,11 +588,21 @@ bool PlayerImpl::play()
       {
         rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
         is_in_playback_ = false;
-        playback_finished_cv_.notify_all();
-      }
 
-      // If we get here and still have/just got a play next request, make sure to notify
-      // After that, requests will be automatically rejected since is_in_playback_ is false
+        // Stop loading storage content, wait until loading thread will be finished,
+        // purge message queue.
+        load_storage_content_ = false;
+        if (storage_loading_future_.valid()) {storage_loading_future_.get();}
+        message_queue_.purge();
+
+        std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
+        is_ready_to_play_from_queue_ = false;
+        ready_to_play_from_queue_cv_.notify_all();
+      }
+      is_in_playback_cv_.notify_all();
+
+      // If we get here and still have/just got a play next request, make sure to notify play_next()
+      // After that, requests will be automatically rejected since is_in_playback_ becomes false
       if (play_next_.exchange(false)) {
         std::lock_guard<std::mutex> lk(finished_play_next_mutex_);
         finished_play_next_ = true;
@@ -617,10 +617,10 @@ bool PlayerImpl::wait_for_playback_to_finish(std::chrono::duration<double> timeo
 {
   rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
   if (timeout.count() < 0) {
-    playback_finished_cv_.wait(is_in_playback_lk, [this] {return !is_in_playback_.load();});
+    is_in_playback_cv_.wait(is_in_playback_lk, [this] {return !is_in_playback_.load();});
     return true;
   } else {
-    return playback_finished_cv_.wait_for(
+    return is_in_playback_cv_.wait_for(
       is_in_playback_lk,
       timeout, [this] {return !is_in_playback_.load();});
   }
@@ -629,35 +629,32 @@ bool PlayerImpl::wait_for_playback_to_finish(std::chrono::duration<double> timeo
 void PlayerImpl::stop()
 {
   rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
-  if (!is_in_playback_) {
-    if (playback_thread_.joinable()) {
-      playback_thread_.join();
-    }
-  } else {
+  if (is_in_playback_) {
     RCLCPP_INFO_STREAM(owner_->get_logger(), "Stopping playback.");
     stop_playback_ = true;
     // Temporary stop playback in play_messages_from_queue() and block play_next() and seek() or
     // wait until those operations will be finished with stop_playback_ = true;
     {
-      std::lock_guard<std::mutex> main_play_loop_lk(skip_message_in_main_play_loop_mutex_);
+      std::lock_guard<std::mutex> main_play_loop_lk(main_play_loop_mutex_);
       // resume playback if it was in pause and waiting on clock in play_messages_from_queue()
       skip_message_in_main_play_loop_ = true;
       cancel_wait_for_next_message_ = true;
     }
 
+    // If in pause mode, we need to wake up the clock to let playback thread finish
     if (clock_->is_paused()) {
       // Wake up the clock in case it's in a sleep_until(time) call
       clock_->wakeup();
     }
-    // Note: Don't clean up message queue here. It will be cleaned up automatically in
-    // playback thread after finishing play_messages_from_queue();
-
+    // Note: Don't clean up message queue here. It will be cleaned up automatically at the end of
+    // playback thread.
     // Wait for playback thread to finish. Make sure that we have unlocked
     // is_in_playback_mutex_, otherwise playback_thread_ will wait forever at the end
     is_in_playback_lk.unlock();
-    if (playback_thread_.joinable()) {
-      playback_thread_.join();
-    }
+    wait_for_playback_to_finish(std::chrono::seconds(-1));
+  } else {
+    RCLCPP_DEBUG_STREAM(owner_->get_logger(),
+      "Trying to stop when playback is not running. Dismissing stop request.");
   }
 }
 
@@ -682,6 +679,16 @@ void PlayerImpl::toggle_paused()
 bool PlayerImpl::is_paused() const
 {
   return clock_->is_paused();
+}
+
+rcutils_time_point_value_t PlayerImpl::get_starting_time() const
+{
+  return starting_time_;
+}
+
+rcutils_duration_value_t PlayerImpl::get_playback_duration() const
+{
+  return playback_duration_;
 }
 
 double PlayerImpl::get_rate() const
@@ -720,24 +727,22 @@ rosbag2_storage::SerializedBagMessageSharedPtr PlayerImpl::take_next_message_fro
 
 bool PlayerImpl::play_next()
 {
-  if (!is_in_playback_) {
-    RCLCPP_WARN_STREAM(owner_->get_logger(), "Called play next, but player is not playing.");
-    return false;
-  }
-  if (!clock_->is_paused()) {
-    RCLCPP_WARN_STREAM(owner_->get_logger(), "Called play next, but not in paused state.");
-    return false;
-  }
+  // First check if we can proceed with playing next message
+  {
+    rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
+    if (!is_in_playback_) {
+      RCLCPP_WARN_STREAM(owner_->get_logger(), "Called play next, but player is not playing.");
+      return false;
+    }
+    if (!clock_->is_paused()) {
+      RCLCPP_WARN_STREAM(owner_->get_logger(), "Called play next, but not in paused state.");
+      return false;
+    }
+  }  // Release is_in_playback_mutex_ before proceeding to avoid deadlock with
+     // playback_thread_ which is waiting for this mutex to be released at the end.
 
   // Use RCLCPP_DEBUG_STREAM to avoid delays in the burst mode
   RCLCPP_DEBUG_STREAM(owner_->get_logger(), "Playing next message.");
-
-  // Wait for player to be ready for playback messages from queue i.e. wait for Player:play() to
-  // be called if not yet and queue to be filled with messages.
-  {
-    std::unique_lock<std::mutex> lk(ready_to_play_from_queue_mutex_);
-    ready_to_play_from_queue_cv_.wait(lk, [this] {return is_ready_to_play_from_queue_;});
-  }
 
   // Request to play next
   play_next_ = true;
@@ -775,37 +780,43 @@ size_t PlayerImpl::burst(const size_t num_messages)
 
 void PlayerImpl::seek(rcutils_time_point_value_t time_point)
 {
-  // Temporary stop playback in play_messages_from_queue() and block play_next()
-  std::lock_guard<std::mutex> main_play_loop_lk(skip_message_in_main_play_loop_mutex_);
-  skip_message_in_main_play_loop_ = true;
+  rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
+  if (!is_in_playback_) {
+    RCLCPP_WARN(owner_->get_logger(), "Called seek, but player is not playing.");
+    return;
+  }
+
   // Wait for player to be ready for playback messages from queue i.e. wait for Player:play() to
   // be called if not yet and queue to be filled with messages.
-  {
-    std::unique_lock<std::mutex> lk(ready_to_play_from_queue_mutex_);
-    ready_to_play_from_queue_cv_.wait(lk, [this] {return is_ready_to_play_from_queue_;});
-  }
+  std::unique_lock<std::mutex> lk(ready_to_play_from_queue_mutex_);
+  ready_to_play_from_queue_cv_.wait(lk, [this] {return is_ready_to_play_from_queue_;});
+
+  // Temporary stop playback in play_messages_from_queue() and block play_next()
+  std::lock_guard<std::mutex> main_play_loop_lk(main_play_loop_mutex_);
+  skip_message_in_main_play_loop_ = true;
   cancel_wait_for_next_message_ = true;
   // if given seek value is earlier than the beginning of the bag, then clamp
   // it to the beginning of the bag
   if (time_point < starting_time_) {
     time_point = starting_time_;
   }
-  {
-    std::lock_guard<std::mutex> lk(reader_mutex_);
-    // Purge current messages in queue.
-    message_queue_.purge();
-    for (const auto & [reader, _] : readers_with_options_) {
-      reader->seek(time_point);
-    }
-    clock_->jump(time_point);
-    // Restart queuing thread if it has finished running (previously reached end of bag),
-    // otherwise, queueing should continue automatically after releasing mutex
-    if (is_storage_completely_loaded() && rclcpp::ok()) {
-      load_storage_content_ = true;
-      storage_loading_future_ =
-        std::async(std::launch::async, [this]() {load_storage_content();});
-    }
-  }
+
+  // Stop loading storage content, wait until loading thread will be finished,
+  // purge message queue, seek readers to the specified time point,
+  // jump clock to the specified time point and restart loading storage content.
+  load_storage_content_ = false;
+  if (storage_loading_future_.valid()) {storage_loading_future_.get();}
+
+  message_queue_.purge();
+  readers_->seek(time_point);
+  clock_->jump(time_point);
+
+  // Restart queuing thread
+  load_storage_content_ = true;
+  storage_loading_future_ =
+    std::async(std::launch::async, [this]() {load_storage_content();});
+
+  clock_->wakeup();  // Finally wake up the clock in case it's in a sleep_until(time) call
 }
 
 Player::callback_handle_t PlayerImpl::add_on_play_message_pre_callback(
@@ -892,14 +903,75 @@ rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr PlayerImpl::get_clock_pu
 
 bool PlayerImpl::wait_for_playback_to_start(std::chrono::duration<double> timeout)
 {
-  std::unique_lock<std::mutex> lk(ready_to_play_from_queue_mutex_);
+  using namespace std::chrono_literals;  // NOLINT
+  // Lambda for try_lock_with_timeout
+  auto try_lock_with_timeout =
+    [](std::mutex & mutex, std::chrono::duration<double> max_wait,
+    std::chrono::milliseconds poll_interval = 10ms) -> std::unique_lock<std::mutex>
+    {
+      auto start = std::chrono::steady_clock::now();
+      std::unique_lock<std::mutex> lock(mutex, std::defer_lock);  // Do not lock yet
+
+      if (max_wait.count() < 0) {
+      // If timeout is negative, wait indefinitely
+        lock.lock();
+        return lock;  // Lock acquired
+      } else {
+        while (std::chrono::steady_clock::now() - start < max_wait) {
+          if (lock.try_lock()) {
+            return lock;  // Lock acquired
+          }
+          std::this_thread::sleep_for(poll_interval);
+        }
+      }
+      return {};  // Return empty (non-owning) lock
+    };
+
+  auto start = std::chrono::steady_clock::now();
+  auto is_in_playback_lk = try_lock_with_timeout(is_in_playback_mutex_, timeout);
+  if (!is_in_playback_lk.owns_lock()) {
+    RCLCPP_DEBUG(owner_->get_logger(),
+                 "Timeout occurred. The is_in_playback_mutex_ hasn't been acquired.");
+    return false;
+  }
   if (timeout.count() < 0) {
-    ready_to_play_from_queue_cv_.wait(lk, [this] {return is_ready_to_play_from_queue_;});
+    is_in_playback_cv_.wait(is_in_playback_lk, [this] {return is_in_playback_.load();});
+  } else {
+    auto lock_duration = std::chrono::steady_clock::now() - start;
+    auto residual_time =
+      timeout > lock_duration ? timeout - lock_duration : std::chrono::microseconds(1);
+    is_in_playback_cv_.wait_for(
+      is_in_playback_lk, residual_time, [this] {return is_in_playback_.load();});
+  }
+  if (!is_in_playback_) {
+    RCLCPP_DEBUG(owner_->get_logger(), "Timeout occurred. The play() hasn't been called.");
+    return false;
+  }
+  auto lock_duration = std::chrono::steady_clock::now() - start;
+  auto residual_time =
+    timeout > lock_duration ? timeout - lock_duration : std::chrono::microseconds(1);
+  auto ready_to_play_lock = try_lock_with_timeout(ready_to_play_from_queue_mutex_, residual_time);
+  if (!ready_to_play_lock.owns_lock()) {
+    RCLCPP_DEBUG(owner_->get_logger(),
+                 "Timeout occurred. The ready_to_play_from_queue_mutex_ hasn't been acquired.");
+    return false;
+  }
+
+  if (timeout.count() < 0) {
+    ready_to_play_from_queue_cv_.wait(
+      ready_to_play_lock, [this] {return is_ready_to_play_from_queue_;});
     return true;
   } else {
-    return ready_to_play_from_queue_cv_.wait_for(
-      lk, timeout, [this] {return is_ready_to_play_from_queue_;}
+    lock_duration = std::chrono::steady_clock::now() - start;
+    residual_time = timeout > lock_duration ?
+      timeout - lock_duration : std::chrono::microseconds(1);
+
+    ready_to_play_from_queue_cv_.wait_for(
+      ready_to_play_lock, residual_time, [this] {return is_ready_to_play_from_queue_;}
     );
+    RCLCPP_DEBUG(owner_->get_logger(), "is_ready_to_play_from_queue_: %s",
+                 is_ready_to_play_from_queue_ ? "true" : "false");
+    return is_ready_to_play_from_queue_;
   }
 }
 
@@ -947,59 +1019,75 @@ void PlayerImpl::load_storage_content()
     static_cast<size_t>(play_options_.read_ahead_queue_size * read_ahead_lower_bound_percentage_);
   auto queue_upper_boundary = play_options_.read_ahead_queue_size;
 
-  while (rclcpp::ok() && load_storage_content_ && !stop_playback_) {
-    rcpputils::unique_lock lk(reader_mutex_);
-    const bool no_messages = std::all_of(
-      readers_with_options_.cbegin(),
-      readers_with_options_.cend(),
-      [](const auto & reader_options) {return !reader_options.first->has_next();});
-    if (no_messages) {
-      break;
-    }
-
+  while (load_storage_content_ && !stop_playback_ && readers_->has_next()) {
     // The message queue size may get smaller after this, but that's OK
     const size_t message_queue_size = message_queue_.size();
-    if (message_queue_size < queue_lower_boundary) {
+    if (message_queue_size <= queue_lower_boundary) {
       enqueue_up_to_boundary(queue_upper_boundary, message_queue_size);
     } else {
-      lk.unlock();
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
 }
 
-void PlayerImpl::enqueue_up_to_boundary(const size_t boundary, const size_t message_queue_size)
+void PlayerImpl::enqueue_up_to_boundary(size_t boundary, size_t message_queue_size)
 {
-  // Read messages from input bags in a round robin way
-  size_t input_bag_index = 0u;
-  for (size_t i = message_queue_size; i < boundary; i++) {
-    const auto & reader = readers_with_options_[input_bag_index].first;
-    // We are supposed to have at least one bag with messages to read
-    if (reader->has_next()) {
-      message_queue_.push(reader->read_next());
+  while (load_storage_content_ && message_queue_size < boundary) {
+    auto next_message = readers_->get_next_message_in_chronological_order();
+    if (next_message != nullptr) {
+      message_queue_.push(next_message);
+      message_queue_size++;
+    } else {
+      // If we have no more messages, we shall stop reading and exit the loop to avoid endless
+      // cycle.
+      break;
     }
-    input_bag_index = (input_bag_index + 1) % readers_with_options_.size();
   }
 }
 
 void PlayerImpl::play_messages_from_queue()
 {
+  rosbag2_storage::SerializedBagMessageSharedPtr message_ptr = nullptr;
   { // Notify play_next()/seek() that we are ready for playback
     std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
     is_ready_to_play_from_queue_ = true;
-    ready_to_play_from_queue_cv_.notify_all();
+    //  Take the first message from the queue under the lock to avoid race with seek(time_point)
+    message_ptr = take_next_message_from_queue();
   }
-  rosbag2_storage::SerializedBagMessageSharedPtr message_ptr = take_next_message_from_queue();
+  ready_to_play_from_queue_cv_.notify_all();
 
   // While we haven't stopped playing, try to play messages and wait for a potential request to play
-  // the next message
+  // the next message.
+  std::unique_lock<std::mutex> main_play_loop_lk(main_play_loop_mutex_);
   while (rclcpp::ok() && !stop_playback_) {
-    // While there's a message to play and we haven't reached the end timestamp yet
-    while (rclcpp::ok() && !stop_playback_ &&
-      message_ptr != nullptr && !shall_stop_at_timestamp(message_ptr->recv_timestamp))
-    {
+    main_play_loop_lk.unlock();  // Unlock while we are waiting/sleeping
+    if (is_paused()) {
+      // If we're paused, we need to wait until the stop of playback or until we get a play next.
+      // Also while we're in a pause state, make sure we don't return if we happen to be at the end
+      // of the queue. We need to be able to make seek back in time from the end of the queue
+      // while in pause.
+      while (rclcpp::ok() && is_paused() && !stop_playback_ && !play_next_.load()) {
+        // When clock is in pause mode, sleep_until() will be blocked until we wake it up or
+        // change the clock state from pause to resume, so this is not a tight busy loop on pause.
+        (void)clock_->sleep_until(clock_->now());
+        // Stop sleeping if cancelled
+        if (std::atomic_exchange(&cancel_wait_for_next_message_, false)) {
+          break;
+        }
+      }
+      if (!is_paused()) {
+        main_play_loop_lk.lock();
+        continue;  // If we just exited from the pause mode, go back to the top of the loop to
+        // handle the non-paused case
+      }
+    } else {
+      // While there's a message to play, and we haven't reached the end yet.
+      if (message_ptr == nullptr ||
+        shall_stop_at_timestamp(message_ptr->recv_timestamp))
+      {
+        break;
+      }
       // Sleep until the message's replay time, do not move on until sleep_until returns true
-      // It will always sleep, so this is not a tight busy loop on pause
       // However, skip sleeping if we're trying to play the next message
       while (rclcpp::ok() && !stop_playback_ && !play_next_.load() &&
         !clock_->sleep_until(message_ptr->recv_timestamp))
@@ -1009,62 +1097,78 @@ void PlayerImpl::play_messages_from_queue()
           break;
         }
       }
+    }
 
-      std::lock_guard<std::mutex> lk_skip_message(skip_message_in_main_play_loop_mutex_);
-      if (rclcpp::ok()) {
-        // This means that the message we took from the queue's top was invalidated after a seek(),
-        // so we need to take a fresh element from the top of the queue, unless we have to stop
-        if (skip_message_in_main_play_loop_) {
-          skip_message_in_main_play_loop_ = false;
-          cancel_wait_for_next_message_ = false;
-          message_ptr = take_next_message_from_queue();
-          continue;
-        }
+    main_play_loop_lk.lock();
+    if (!stop_playback_) {
+      // This means that the message we took from the queue's top was invalidated after a seek(),
+      // so we need to take a fresh element from the top of the queue, unless we have to stop
+      if (skip_message_in_main_play_loop_) {
+        skip_message_in_main_play_loop_ = false;
+        cancel_wait_for_next_message_ = false;
+        message_ptr = take_next_message_from_queue();
+        continue;
+      }
 
-        const bool message_published = publish_message(message_ptr);
-        // If we tried to publish because of play_next(), jump the clock
+      if (message_ptr == nullptr) {
+        // We can get here with a null message_ptr if we are processing play_next() but there are
+        // actually no more messages to play. In that case, we just notify play_next(). Or if we
+        // have reached the end of playback and resumed playback from pause mode. In this case,
+        // we need to continue loop to gracefully exit from play_messages_from_queue()
         if (play_next_.load()) {
-          clock_->jump(message_ptr->recv_timestamp);
           play_next_ = false;
           std::lock_guard<std::mutex> lk(finished_play_next_mutex_);
           finished_play_next_ = true;
-          play_next_result_ = message_published;
+          play_next_result_ = false;
           finished_play_next_cv_.notify_all();
         }
+        continue;
       }
-      message_ptr = take_next_message_from_queue();
-    }
 
-    // At this point, we're at the end of the playback round, there are no more messages to play
-    // If we're still trying to play next or just got a request, we did not succeed
-    if (play_next_.exchange(false)) {
-      std::lock_guard<std::mutex> lk(finished_play_next_mutex_);
-      finished_play_next_ = true;
-      play_next_result_ = false;
-      finished_play_next_cv_.notify_all();
-    }
+      bool message_published = false;
+      // We shall respect shall_stop_at_timestamp() even do play_next in pause mode
+      if (!shall_stop_at_timestamp(message_ptr->recv_timestamp)) {
+        message_published = publish_message(message_ptr);
+      }
 
-    // While we're in a pause state, make sure we don't return if we happen to be at the end of the
-    // queue or playback round. However, if we get a request for play next during sleep_until(...),
-    // we need to stop waiting here and proceed to handle the play next request by doing another
-    // loop of this while().
-    while (!stop_playback_ && is_paused() && !play_next_.load() && rclcpp::ok()) {
-      clock_->sleep_until(clock_->now());
+      // If we tried to publish because of play_next(), jump the clock
+      if (play_next_.load()) {
+        clock_->jump(message_ptr->recv_timestamp);
+        play_next_ = false;
+        std::lock_guard<std::mutex> lk(finished_play_next_mutex_);
+        finished_play_next_ = true;
+        play_next_result_ = message_published;
+        finished_play_next_cv_.notify_all();
+      }
     }
-    // If we ran out of messages and are not in pause state, it means we're done playing
-    if (!is_paused()) {
-      break;
-    }
-
-    // If we had run out of messages before but are starting to play next again, e.g., after a
-    // seek(), we need to take
-    if (play_next_.load()) {
-      std::lock_guard<std::mutex> lk(skip_message_in_main_play_loop_mutex_);
-      skip_message_in_main_play_loop_ = false;
-      cancel_wait_for_next_message_ = false;
-      message_ptr = take_next_message_from_queue();
-    }
+    message_ptr = take_next_message_from_queue();
   }
+  // Note: We are still under the lock of main_play_loop_mutex_ here
+  {
+    // Unlock main_play_loop_lk to avoid potential deadlocks with stop() and seek() which also try
+    // to lock is_in_playback_mutex_ first and then main_play_loop_mutex_.
+    if (main_play_loop_lk.owns_lock()) {main_play_loop_lk.unlock();}
+
+    // Lock is_in_playback_mutex_ here to make sure that we won't have a race condition between
+    // wait_for_playback_to_start() and when we started and finished playback before checking for
+    // the is_ready_to_play_from_queue_ in the wait_for_playback_to_start() function.
+    // i.e., to make sure that when wait_for_playback_to_start() is about to check for the
+    // is_ready_to_play_from_queue_ after being notified that playback is started, the playback
+    // thread won't just finish and reset the state of the is_ready_to_play_from_queue_ to false
+    // before wait_for_playback_to_start() will check it.
+    rcpputils::unique_lock<std::mutex> is_in_playback_lk(is_in_playback_mutex_);
+
+    // Set is_ready_to_play_from_queue_ to false at the end of play_messages_from_queue() to
+    // make sure that we won't have a race condition between seek() and play_messages_from_queue()
+    // when play_options_.loop = true. i.e., To avoid overriding the seek operation when play loops
+    // back to the beginning, the main_play_loop_mutex_ unlocked, and the seek(timestamp) is called.
+    // In this case, the readers and queues would be reset to the beginning of the bag in the
+    // following initialization of play loop before play_messages_from_queue() is called again,
+    // effectively dismissing the seek operation.
+    std::lock_guard<std::mutex> lk(ready_to_play_from_queue_mutex_);
+    is_ready_to_play_from_queue_ = false;
+  }
+  ready_to_play_from_queue_cv_.notify_all();
 }
 
 namespace
@@ -1155,9 +1259,8 @@ void PlayerImpl::prepare_publishers()
   storage_filter.regex_to_exclude = play_options_.exclude_regex_to_filter;
   storage_filter.exclude_topics = play_options_.exclude_topics_to_filter;
   storage_filter.exclude_service_events = play_options_.exclude_services_to_filter;
-  for (const auto & [reader, _] : readers_with_options_) {
-    reader->set_filter(storage_filter);
-  }
+
+  readers_->set_filter(storage_filter);
 
   // Create /clock publisher
   if (play_options_.clock_publish_frequency > 0.f || play_options_.clock_publish_on_topic_publish) {
@@ -1195,11 +1298,7 @@ void PlayerImpl::prepare_publishers()
 
   // Create topic publishers
   // We could have duplicate topic names here, but we correctly handle it when creating publishers
-  std::vector<rosbag2_storage::TopicMetadata> topics{};
-  for (const auto & [reader, _] : readers_with_options_) {
-    auto bag_topics = reader->get_all_topics_and_types();
-    topics.insert(topics.end(), bag_topics.begin(), bag_topics.end());
-  }
+  std::vector<rosbag2_storage::TopicMetadata> topics = readers_->get_all_topics_and_types();
   std::string topic_without_support_acked;
   for (const auto & topic : topics) {
     const bool is_service_event_topic = rosbag2_cpp::is_service_event_topic(topic.name, topic.type);
@@ -1275,9 +1374,21 @@ void PlayerImpl::prepare_publishers()
   }
 
   // Create a publisher and callback for when encountering a split in the input
+  rosbag2_storage::Rosbag2QoS split_event_qos = rosbag2_storage::Rosbag2QoS::EventQoS();
+  auto read_split_topic_name = rclcpp::expand_topic_or_service_name(
+    kDefaultReadSplitTopicName, owner_->get_name(), owner_->get_namespace(), false);
+  if (play_options_.topic_qos_profile_overrides.find(read_split_topic_name) !=
+    play_options_.topic_qos_profile_overrides.end())
+  {
+    const auto & override_qos = play_options_.topic_qos_profile_overrides.at(read_split_topic_name);
+    split_event_qos = rosbag2_storage::Rosbag2QoS(override_qos);
+    RCLCPP_DEBUG(owner_->get_logger(),
+      "Using overridden QoS profile: \n%s\nfor '%s' topic.",
+      split_event_qos.to_string().c_str(), read_split_topic_name.c_str());
+  }
+
   split_event_pub_ = owner_->create_publisher<rosbag2_interfaces::msg::ReadSplitEvent>(
-    "events/read_split",
-    1);
+    kDefaultReadSplitTopicName, split_event_qos);
   rosbag2_cpp::bag_events::ReaderEventCallbacks callbacks;
   callbacks.read_split_callback =
     [this](rosbag2_cpp::bag_events::BagSplitInfo & info) {
@@ -1287,9 +1398,7 @@ void PlayerImpl::prepare_publishers()
       message.node_name = owner_->get_fully_qualified_name();
       split_event_pub_->publish(message);
     };
-  for (const auto & [reader, _] : readers_with_options_) {
-    reader->add_event_callbacks(callbacks);
-  }
+  readers_->add_event_callbacks(callbacks);
 }
 
 void PlayerImpl::run_play_msg_pre_callbacks(
@@ -1645,17 +1754,18 @@ void PlayerImpl::publish_clock_update(const rclcpp::Time & time)
 
 const rosbag2_storage::StorageOptions & PlayerImpl::get_storage_options()
 {
-  return readers_with_options_[0].second;
+  auto all_storage_options = get_all_storage_options();
+  if (all_storage_options.empty()) {
+    throw std::runtime_error("Storage options not available.");
+  }
+  first_storage_options_ = all_storage_options[0];
+  // Note: Use first_storage_options_ as return value to keep the reference valid
+  return first_storage_options_;
 }
 
 std::vector<rosbag2_storage::StorageOptions> PlayerImpl::get_all_storage_options()
 {
-  std::vector<rosbag2_storage::StorageOptions> storage_options{};
-  storage_options.reserve(readers_with_options_.size());
-  for (const auto & [_, options] : readers_with_options_) {
-    storage_options.push_back(options);
-  }
-  return storage_options;
+  return readers_->get_all_storage_options();
 }
 
 const rosbag2_transport::PlayOptions & PlayerImpl::get_play_options()
@@ -1809,6 +1919,16 @@ void Player::toggle_paused()
 bool Player::is_paused() const
 {
   return pimpl_->is_paused();
+}
+
+rcutils_time_point_value_t Player::get_starting_time() const
+{
+  return pimpl_->get_starting_time();
+}
+
+rcutils_duration_value_t Player::get_playback_duration() const
+{
+  return pimpl_->get_playback_duration();
 }
 
 double Player::get_rate() const

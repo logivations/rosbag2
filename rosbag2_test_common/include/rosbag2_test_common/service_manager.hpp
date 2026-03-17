@@ -23,6 +23,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "rosbag2_test_common/wait_for.hpp"
+
 namespace rosbag2_test_common
 {
 class ServiceManager
@@ -68,9 +70,13 @@ public:
 
     auto service = service_node_->create_service<ServiceT>(
       service_name, std::forward<decltype(callback)>(callback));
+    service->configure_introspection(
+      service_node_->get_clock(), rclcpp::ServicesQoS(), RCL_SERVICE_INTROSPECTION_CONTENTS);
     services_.emplace(service_name, service);
 
     auto client = check_service_ready_node_->create_client<ServiceT>(service_name);
+    client->configure_introspection(
+      service_node_->get_clock(), rclcpp::ServicesQoS(), RCL_SERVICE_INTROSPECTION_CONTENTS);
     clients_.emplace_back(client);
   }
 
@@ -81,6 +87,12 @@ public:
       [this]() {
         exec_.spin();
       });
+
+    // Wait for the executor to start spinning in the newly spawned thread to avoid race conditions
+    if (!wait_until_condition([this]() {return exec_.is_spinning();}, std::chrono::seconds(5))) {
+      std::cerr << "Failed to start spinning node:" << service_node_->get_name() << std::endl;
+      throw std::runtime_error("Failed to start spinning node");
+    }
   }
 
   bool all_services_ready()

@@ -34,10 +34,18 @@ endif()
 macro(build_mcap_vendor)
   include(FetchContent)
   fetchcontent_declare(mcap
-    URL https://github.com/foxglove/mcap/archive/refs/tags/releases/cpp/v1.3.0.tar.gz
-    URL_HASH SHA1=558833d0cde8193a04b77251421aabee3447acb2 # v1.3.0
+    URL https://github.com/foxglove/mcap/archive/refs/tags/releases/cpp/v1.3.1.tar.gz
+    URL_HASH SHA1=5ed9466871b0f078d125b2d534954f74b419e050 # v1.3.1
   )
   fetchcontent_makeavailable(mcap)
+
+  file(GLOB PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch"
+  )
+
+  foreach(PATCH ${PATCHES})
+    execute_process(COMMAND git apply --whitespace=nowarn -p1 ${PATCH})
+  endforeach()
 
   add_library(mcap SHARED
     src/main.cpp

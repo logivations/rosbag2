@@ -131,6 +131,18 @@ The Rosbag2 recorder provides the following services for remote control, which c
   * Triggers a split to a new file, even if none of the configured split criteria (such as `--max-bag-size` or `--max-bag-duration`) have been met yet
 * `~/snapshot [rosbag2_interfaces/srv/Snapshot]`
   * enabled if `--snapshot-mode` is specified. Takes no arguments, triggers a snapshot.
+* `~/record [rosbag2_interfaces/srv/Record]`
+  * Start recording. Optionally takes a `uri` argument to specify the output location. If the recorder is already recording, the request will be rejected.
+* `~/stop [rosbag2_interfaces/srv/Stop]`
+  * Stop the recorder. This will finalize the current bag file and write metadata. Recording can be restarted with the `~/record` service.
+* `~/is_discovery_running [rosbag2_interfaces/srv/IsDiscoveryRunning]`
+  * Returns whether topic discovery is currently running.
+* `~/start_discovery [rosbag2_interfaces/srv/StartDiscovery]`
+  * Start topic discovery to automatically find and subscribe to new topics. Has no effect if discovery is already running or if the recorder is not in recording state.
+* `~/stop_discovery [rosbag2_interfaces/srv/StopDiscovery]`
+  * Stop topic discovery. Existing subscriptions will be maintained, but new topics will not be discovered automatically.
+
+These services enable full remote control of the recording process, allowing you to start and stop recording sessions, manage topic discovery, and control the recording state without restarting the recorder node.
 
 #### Snapshot mode
 
@@ -153,7 +165,7 @@ The Player will automatically detect which storage implementation to use for pla
 To play back multiple bags:
 
 ```
-$ ros2 bag play <bag1> -i <bag2> -i <bag3>
+$ ros2 bag play -i <bag1> -i <bag2> -i <bag3>
 ```
 
 Messages from all provided bags will be played in order, based on their original recording reception timestamps.
@@ -246,6 +258,9 @@ output_bags:
   max_bagfile_duration: 0
   storage_preset_profile: ""
   storage_config_uri: ""
+  # optional filter for msg time t [nsec since epoch]:  start_time_ns <= t <= end_time_ns
+  # start_time_ns: 1744227144744197147
+  # end_time_ns: 1744227145734665546
   all_topics: false
   topics: []
   topic_types: []
@@ -308,7 +323,7 @@ output_bags:
 
 When starting a recording or playback, you can pass a YAML file that contains QoS profile settings for a specific topic.
 The YAML schema for the profile overrides is a dictionary of topic names with key/value pairs for each QoS policy.
-Below is an example profile set to the default ROS2 QoS settings.
+Below is an example profile set to the default ROS 2 QoS settings.
 
 ```yaml
 /topic_name:
