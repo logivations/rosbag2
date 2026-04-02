@@ -644,7 +644,6 @@ void RecorderImpl::topics_discovery() noexcept
 
    auto start = node->get_clock()->now();
   auto timeout = record_options_.timeout_for_delay; // seconds
-    bool should_update_subscriptions = true;
     while (rclcpp::ok() && discovery_running_) {
 
    if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
@@ -668,7 +667,7 @@ void RecorderImpl::topics_discovery() noexcept
         break;
       }
 
-      if (should_update_subscriptions) {
+      {
         auto topics_to_subscribe = get_requested_or_available_topics();
         for (const auto & topic_and_type : topics_to_subscribe) {
           warn_if_new_qos_for_subscribed_topic(topic_and_type.first);
@@ -677,7 +676,7 @@ void RecorderImpl::topics_discovery() noexcept
         subscribe_topics(missing_topics);
       }
       node->wait_for_graph_change(discovery_graph_event_, record_options_.topic_polling_interval);
-      should_update_subscriptions = discovery_graph_event_->check_and_clear();
+      discovery_graph_event_->check_and_clear();
     }
   } catch (const std::exception & e) {
     RCLCPP_ERROR_STREAM(node->get_logger(), "Failure in topics discovery.\nError: " << e.what());
