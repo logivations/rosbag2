@@ -122,7 +122,13 @@ private:
   std::shared_ptr<rclcpp::GenericSubscription> create_subscription(
     const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos);
 
-  void drain_subscription_backlog(const std::string & topic_name, const std::string & topic_type);
+  void write_message(
+    std::shared_ptr<const rclcpp::SerializedMessage> message, const rclcpp::MessageInfo & mi,
+    const std::string & topic_name, const std::string & topic_type);
+
+  void drain_subscription_backlog(
+    rclcpp::SubscriptionBase & subscription,
+    const std::string & topic_name, const std::string & topic_type);
 
   /**
    * Find the QoS profile that should be used for subscribing.
@@ -767,6 +773,9 @@ RecorderImpl::create_subscription(
   if (std::string(rmw_get_implementation_identifier()).find("rmw_connextdds") !=
     std::string::npos)
   {
+    // No backlog drain here: the stuck-backlog artifact was only observed
+    // with rmw_cyclonedds on Linux, and this fork does not exercise the
+    // Connext-on-Windows path.
     return node->create_generic_subscription(
       topic_name,
       topic_type,
@@ -783,41 +792,49 @@ RecorderImpl::create_subscription(
   }
 #endif
 
+  // The callback needs its own subscription for the backlog drain, but the
+  // subscription only exists after create_generic_subscription returns, so it
+  // is handed in through a shared holder. Locking the weak_ptr (instead of
+  // looking the topic up in subscriptions_) keeps the drain off the map, which
+  // the discovery thread mutates and stop() clears concurrently, and keeps the
+  // subscription alive for the duration of the drain.
+  auto weak_subscription = std::make_shared<std::weak_ptr<rclcpp::GenericSubscription>>();
+  auto subscription = node->create_generic_subscription(
+    topic_name,
+    topic_type,
+    qos,
+    [this, topic_name, topic_type, weak_subscription](
+      std::shared_ptr<const rclcpp::SerializedMessage> message, const rclcpp::MessageInfo & mi) {
+      if (!paused_.load()) {
+        write_message(std::move(message), mi, topic_name, topic_type);
+      }
+      if (auto sub = weak_subscription->lock()) {
+        drain_subscription_backlog(*sub, topic_name, topic_type);
+      }
+    },
+    sub_options);
+  *weak_subscription = subscription;
+  return subscription;
+}
+
+void RecorderImpl::write_message(
+  std::shared_ptr<const rclcpp::SerializedMessage> message, const rclcpp::MessageInfo & mi,
+  const std::string & topic_name, const std::string & topic_type)
+{
   if (record_options_.use_sim_time) {
-    return node->create_generic_subscription(
-      topic_name,
-      topic_type,
-      qos,
-      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
-      const rclcpp::MessageInfo & mi) {
-        if (!paused_.load()) {
-          writer_->write(
-            std::move(message), topic_name, topic_type, node->now().nanoseconds(),
-            mi.get_rmw_message_info().source_timestamp);
-        }
-        drain_subscription_backlog(topic_name, topic_type);
-      },
-      sub_options);
+    writer_->write(
+      std::move(message), topic_name, topic_type, node->now().nanoseconds(),
+      mi.get_rmw_message_info().source_timestamp);
   } else {
-    return node->create_generic_subscription(
-      topic_name,
-      topic_type,
-      qos,
-      [this, topic_name, topic_type](std::shared_ptr<const rclcpp::SerializedMessage> message,
-      const rclcpp::MessageInfo & mi) {
-        if (!paused_.load()) {
-          writer_->write(
-            std::move(message), topic_name, topic_type,
-            mi.get_rmw_message_info().received_timestamp,
-            mi.get_rmw_message_info().source_timestamp);
-        }
-        drain_subscription_backlog(topic_name, topic_type);
-      },
-      sub_options);
+    writer_->write(
+      std::move(message), topic_name, topic_type,
+      mi.get_rmw_message_info().received_timestamp,
+      mi.get_rmw_message_info().source_timestamp);
   }
 }
 
 void RecorderImpl::drain_subscription_backlog(
+  rclcpp::SubscriptionBase & subscription,
   const std::string & topic_name, const std::string & topic_type)
 {
   // Samples can sit in the rmw reader cache without a matching wake event
@@ -827,35 +844,40 @@ void RecorderImpl::drain_subscription_backlog(
   // behind, with a permanently offset log_time (rmw_cyclonedds stamps
   // received_timestamp at take time, not at reception). Sweeping the cache
   // after each dispatched message guarantees a backlog cannot outlive the
-  // next arrival on the topic.
-  auto subscription_it = subscriptions_.find(topic_name);
-  if (subscription_it == subscriptions_.end()) {
-    return;
-  }
+  // next arrival on the topic. Known gap: a topic whose backlog forms and
+  // then never receives another message is never swept.
+  //
   // Bound the sweep so one flooded topic cannot monopolize the executor
   // thread shared by all recorder subscriptions.
   constexpr size_t max_drain_per_dispatch = 128;
   for (size_t i = 0; i < max_drain_per_dispatch; ++i) {
+    // Checked before the take: samples must stay in the reader cache across a
+    // pause so they are written after resume, matching the dispatch path
+    // which only discards messages that arrive while paused.
+    if (paused_.load()) {
+      return;
+    }
     auto message = std::make_shared<rclcpp::SerializedMessage>();
     rclcpp::MessageInfo mi;
-    if (!subscription_it->second->take_serialized(*message, mi)) {
-      break;
+    try {
+      if (!subscription.take_serialized(*message, mi)) {
+        return;
+      }
+    } catch (const std::exception & e) {
+      // take_serialized throws e.g. when the subscription is being torn down;
+      // an escaped exception would terminate the executor thread.
+      RCLCPP_WARN(
+        node->get_logger(), "Backlog drain on topic '%s' aborted: %s",
+        topic_name.c_str(), e.what());
+      return;
     }
-    if (paused_.load()) {
-      continue;
-    }
-    if (record_options_.use_sim_time) {
-      writer_->write(
-        std::shared_ptr<const rclcpp::SerializedMessage>(std::move(message)), topic_name,
-        topic_type, node->now().nanoseconds(),
-        mi.get_rmw_message_info().source_timestamp);
-    } else {
-      writer_->write(
-        std::shared_ptr<const rclcpp::SerializedMessage>(std::move(message)), topic_name,
-        topic_type, mi.get_rmw_message_info().received_timestamp,
-        mi.get_rmw_message_info().source_timestamp);
-    }
+    write_message(std::move(message), mi, topic_name, topic_type);
   }
+  RCLCPP_WARN_THROTTLE(
+    node->get_logger(), *node->get_clock(), 5000,
+    "Backlog on topic '%s' exceeds %zu samples; drain truncated, log_time may "
+    "remain offset until the backlog clears.",
+    topic_name.c_str(), max_drain_per_dispatch);
 }
 
 std::vector<rclcpp::QoS> RecorderImpl::offered_qos_profiles_for_topic(
