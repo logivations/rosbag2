@@ -122,6 +122,8 @@ private:
   std::shared_ptr<rclcpp::GenericSubscription> create_subscription(
     const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos);
 
+  void drain_subscription_backlog(const std::string & topic_name, const std::string & topic_type);
+
   /**
    * Find the QoS profile that should be used for subscribing.
    *
@@ -793,6 +795,7 @@ RecorderImpl::create_subscription(
             std::move(message), topic_name, topic_type, node->now().nanoseconds(),
             mi.get_rmw_message_info().source_timestamp);
         }
+        drain_subscription_backlog(topic_name, topic_type);
       },
       sub_options);
   } else {
@@ -808,8 +811,50 @@ RecorderImpl::create_subscription(
             mi.get_rmw_message_info().received_timestamp,
             mi.get_rmw_message_info().source_timestamp);
         }
+        drain_subscription_backlog(topic_name, topic_type);
       },
       sub_options);
+  }
+}
+
+void RecorderImpl::drain_subscription_backlog(
+  const std::string & topic_name, const std::string & topic_type)
+{
+  // Samples can sit in the rmw reader cache without a matching wake event
+  // (e.g. arrivals between subscription matching and the first dispatch).
+  // The executor takes exactly one sample per event, so such a backlog is
+  // never consumed on its own: every later message is written one take
+  // behind, with a permanently offset log_time (rmw_cyclonedds stamps
+  // received_timestamp at take time, not at reception). Sweeping the cache
+  // after each dispatched message guarantees a backlog cannot outlive the
+  // next arrival on the topic.
+  auto subscription_it = subscriptions_.find(topic_name);
+  if (subscription_it == subscriptions_.end()) {
+    return;
+  }
+  // Bound the sweep so one flooded topic cannot monopolize the executor
+  // thread shared by all recorder subscriptions.
+  constexpr size_t max_drain_per_dispatch = 128;
+  for (size_t i = 0; i < max_drain_per_dispatch; ++i) {
+    auto message = std::make_shared<rclcpp::SerializedMessage>();
+    rclcpp::MessageInfo mi;
+    if (!subscription_it->second->take_serialized(*message, mi)) {
+      break;
+    }
+    if (paused_.load()) {
+      continue;
+    }
+    if (record_options_.use_sim_time) {
+      writer_->write(
+        std::shared_ptr<const rclcpp::SerializedMessage>(std::move(message)), topic_name,
+        topic_type, node->now().nanoseconds(),
+        mi.get_rmw_message_info().source_timestamp);
+    } else {
+      writer_->write(
+        std::shared_ptr<const rclcpp::SerializedMessage>(std::move(message)), topic_name,
+        topic_type, mi.get_rmw_message_info().received_timestamp,
+        mi.get_rmw_message_info().source_timestamp);
+    }
   }
 }
 
