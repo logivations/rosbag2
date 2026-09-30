@@ -16,6 +16,7 @@
 #define ROSBAG2_TRANSPORT__TOPIC_FILTER_HPP_
 
 #include <map>
+#include <regex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -61,6 +62,12 @@ private:
   RecordOptions record_options_;
   bool allow_unknown_types_ = false;
   std::unordered_set<std::string> already_warned_unknown_types_;
+  /// Types whose typesupport library was found. The lookup searches every AMENT_PREFIX_PATH
+  /// entry on disk, so it is done once per type instead of once per topic and poll.
+  std::unordered_set<std::string> known_types_;
+  /// record_options_.regex and exclude_regex, compiled once
+  std::regex include_regex_;
+  std::regex exclude_regex_;
   rclcpp::node_interfaces::NodeGraphInterface::SharedPtr node_graph_;
 };
 }  // namespace rosbag2_transport

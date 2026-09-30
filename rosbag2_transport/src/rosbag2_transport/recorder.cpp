@@ -111,8 +111,12 @@ private:
 
   void topics_discovery() noexcept;
 
-  std::unordered_map<std::string, std::string>
-  get_missing_topics(const std::unordered_map<std::string, std::string> & all_topics);
+  /// Subscribe to the topics that pass the topic filter and are not recorded yet
+  void subscribe_new_topics();
+
+  /// True if an explicit topic list is configured and all of it is subscribed. Always false
+  /// with a regex, topic types or "all": those can match further topics at any time.
+  bool all_requested_topics_subscribed() const;
 
   void subscribe_topics(
     const std::unordered_map<std::string, std::string> & topics_and_types);
@@ -642,39 +646,26 @@ void RecorderImpl::topics_discovery() noexcept
       }
     }
 
-   auto start = node->get_clock()->now();
-  auto timeout = record_options_.timeout_for_delay; // seconds
+    // timeout_for_delay: the window after which discovery stops in any case, also when a
+    // regex, topic types or listed topics that never appear keep it from finishing on its own.
+    const auto start = node->get_clock()->now();
+    const auto window = rclcpp::Duration::from_seconds(record_options_.timeout_for_delay);
     while (rclcpp::ok() && discovery_running_) {
-
-   if(node->get_clock()->now() - start > rclcpp::Duration(timeout, 0)){
-    /* while not all topics from the topic whitelist are matched, rosbag recorder will check in some interval
-       for the remaining topics.
-       I suppose that due to the distributed nature of ROS2 DDS, this has to connect to all nodes and fetch all their topics.
-       It is thus very CPU-intensive (1 second, 100% of a CPU)
-       While this is not a problem if the whitelist exactly matches the available topics, this creates a maintenance risk:
-       as soon as a topic from the whitelist is removed, these spikes will occur.
-       So, as a compromise, stop discovery after some timeout */
-      RCLCPP_INFO(
-        node->get_logger(),
-        "Stopping auto-discovery because timeout = %s is reached", std::to_string(timeout).c_str());
-      return;
-     }
-      if (!record_options_.topics.empty() &&
-        subscriptions_.size() == record_options_.topics.size())
-      {
+      if (node->get_clock()->now() - start > window) {
+        // While not all requested topics are subscribed, the recorder keeps polling the graph
+        // and filtering every topic in it, which costs noticeable CPU on a large graph. As a
+        // compromise, only topics that appear within the window are recorded.
+        RCLCPP_INFO(
+          node->get_logger(), "Stopping topics discovery: timeout_for_delay = %.1f s reached.",
+          record_options_.timeout_for_delay);
+        break;
+      }
+      if (all_requested_topics_subscribed()) {
         RCLCPP_INFO(
           node->get_logger(), "All requested topics are subscribed. Stopping discovery...");
         break;
       }
-
-      {
-        auto topics_to_subscribe = get_requested_or_available_topics();
-        for (const auto & topic_and_type : topics_to_subscribe) {
-          warn_if_new_qos_for_subscribed_topic(topic_and_type.first);
-        }
-        auto missing_topics = get_missing_topics(topics_to_subscribe);
-        subscribe_topics(missing_topics);
-      }
+      subscribe_new_topics();
       node->wait_for_graph_change(discovery_graph_event_, record_options_.topic_polling_interval);
       discovery_graph_event_->check_and_clear();
     }
@@ -694,18 +685,38 @@ RecorderImpl::get_requested_or_available_topics()
   return topic_filter_->filter_topics(all_topics_and_types);
 }
 
-std::unordered_map<std::string, std::string>
-RecorderImpl::get_missing_topics(const std::unordered_map<std::string, std::string> & all_topics)
+void RecorderImpl::subscribe_new_topics()
 {
-  std::unordered_map<std::string, std::string> missing_topics;
-  for (const auto & [topic_name, topic_type] : all_topics) {
-    if (subscriptions_.find(topic_name) == subscriptions_.end()) {
-      missing_topics.emplace(topic_name, topic_type);
+  auto topics_and_types = node->get_topic_names_and_types();
+  // Subscribed topics skip the topic filter: its per-topic checks (the typesupport lookup on
+  // disk, the publisher query) are the expensive part of a poll, and their result is known.
+  for (auto it = topics_and_types.begin(); it != topics_and_types.end(); ) {
+    if (subscriptions_.count(it->first) > 0) {
+      warn_if_new_qos_for_subscribed_topic(it->first);
+      it = topics_and_types.erase(it);
+    } else {
+      ++it;
     }
   }
-  return missing_topics;
+  subscribe_topics(topic_filter_->filter_topics(topics_and_types));
 }
 
+bool RecorderImpl::all_requested_topics_subscribed() const
+{
+  if (record_options_.topics.empty() || !record_options_.regex.empty() ||
+    !record_options_.topic_types.empty() || record_options_.all_topics ||
+    record_options_.all_services)
+  {
+    return false;
+  }
+  auto subscribed = [this](const std::string & topic) {
+      return subscriptions_.count(topic) > 0;
+    };
+  return std::all_of(
+    record_options_.topics.begin(), record_options_.topics.end(), subscribed) &&
+         std::all_of(
+    record_options_.services.begin(), record_options_.services.end(), subscribed);
+}
 
 void RecorderImpl::subscribe_topics(
   const std::unordered_map<std::string, std::string> & topics_and_types)
