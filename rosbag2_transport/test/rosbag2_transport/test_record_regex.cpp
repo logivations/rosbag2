@@ -18,7 +18,9 @@
 #include <memory>
 #include <regex>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -419,4 +421,107 @@ TEST_F(RecordIntegrationTestFixture, regex_and_exclude_service_service_recording
   EXPECT_THAT(recorded_topics, SizeIs(2));
   EXPECT_TRUE(recorded_topics.find(v1 + "/_service_event") != recorded_topics.end());
   EXPECT_TRUE(recorded_topics.find(v2 + "/_service_event") != recorded_topics.end());
+}
+
+TEST_F(RecordIntegrationTestFixture, regex_discovery_stops_after_timeout_for_delay)
+{
+  // With a regex the recorder can never tell that "all requested topics" are subscribed, so
+  // only timeout_for_delay ends the discovery. Topics that appear inside that window are
+  // recorded, topics that appear after it are not.
+  // three listed topics that never appear, more than the regex matches before the window
+  // ends, so that the subscription count cannot equal the number of listed topics
+  const std::string listed_never = "/listed_never_published";
+  const std::vector<std::string> listed = {listed_never, "/listed_never_2", "/listed_never_3"};
+  const std::string rx_at_start = "/rx_at_start";
+  const std::string rx_in_window = "/rx_in_window";
+  const std::string rx_after_window = "/rx_after_window";
+  auto message = get_messages_strings()[0];
+
+  rosbag2_transport::RecordOptions record_options =
+  {false, false, false, listed, {}, {}, {}, {}, {}, "rmw_format", 20ms};
+  record_options.regex = "^/rx_";
+  record_options.timeout_for_delay = 1.5f;
+
+  rosbag2_test_common::PublicationManager pub_at_start;
+  pub_at_start.setup_publisher(rx_at_start, message, 1);
+
+  auto recorder = std::make_shared<MockRecorder>(
+    std::move(writer_), storage_options_, record_options);
+  recorder->record();
+  start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
+
+  auto & writer = recorder->get_writer_handle();
+  auto & mock_writer = dynamic_cast<MockSequentialWriter &>(writer.get_implementation_handle());
+  auto topic_recorded = [&mock_writer](const std::string & topic) {
+      return mock_writer.get_topics().count(topic) > 0;
+    };
+
+  ASSERT_TRUE(
+    rosbag2_test_common::wait_until_condition(
+      [&]() {return topic_recorded(rx_at_start);}, 5s));
+
+  rosbag2_test_common::PublicationManager pub_in_window;
+  pub_in_window.setup_publisher(rx_in_window, message, 1);
+  EXPECT_TRUE(
+    rosbag2_test_common::wait_until_condition(
+      [&]() {return topic_recorded(rx_in_window);}, 1s)) <<
+    "a topic that appears inside the discovery window must be recorded";
+
+  ASSERT_TRUE(
+    rosbag2_test_common::wait_until_condition(
+      [&]() {return !recorder->is_discovery_running();}, 5s)) <<
+    "discovery must stop after timeout_for_delay although a regex is set";
+
+  rosbag2_test_common::PublicationManager pub_after_window;
+  pub_after_window.setup_publisher(rx_after_window, message, 1);
+  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(rx_after_window));
+  // 25 polling intervals: the recorder would have subscribed if discovery were still running
+  std::this_thread::sleep_for(500ms);
+  EXPECT_FALSE(topic_recorded(rx_after_window));
+  EXPECT_FALSE(topic_recorded(listed_never));
+}
+
+TEST_F(RecordIntegrationTestFixture, regex_matches_do_not_end_discovery_before_listed_topics)
+{
+  // Two topics listed, one present at start, and one regex match: the subscription count
+  // equals the number of listed topics, but /listed_late is still missing and must be
+  // picked up when it appears.
+  const std::string listed_present = "/listed_present";
+  const std::string listed_late = "/listed_late";
+  const std::string rx_match = "/rx_match";
+  auto message = get_messages_strings()[0];
+
+  rosbag2_transport::RecordOptions record_options =
+  {false, false, false, {listed_present, listed_late}, {}, {}, {}, {}, {}, "rmw_format", 20ms};
+  record_options.regex = "^/rx_";
+
+  rosbag2_test_common::PublicationManager pub_at_start;
+  pub_at_start.setup_publisher(listed_present, message, 1);
+  pub_at_start.setup_publisher(rx_match, message, 1);
+
+  auto recorder = std::make_shared<MockRecorder>(
+    std::move(writer_), storage_options_, record_options);
+  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(listed_present));
+  ASSERT_TRUE(recorder->wait_for_topic_to_be_discovered(rx_match));
+  recorder->record();
+  start_async_spin(recorder);
+  auto cleanup_process_handle = rcpputils::make_scope_exit([&]() {stop_spinning();});
+
+  auto & writer = recorder->get_writer_handle();
+  auto & mock_writer = dynamic_cast<MockSequentialWriter &>(writer.get_implementation_handle());
+  auto topic_recorded = [&mock_writer](const std::string & topic) {
+      return mock_writer.get_topics().count(topic) > 0;
+    };
+  ASSERT_TRUE(
+    rosbag2_test_common::wait_until_condition(
+      [&]() {return topic_recorded(listed_present) && topic_recorded(rx_match);}, 5s));
+  // give the discovery loop time to evaluate its stop condition with two subscriptions
+  std::this_thread::sleep_for(200ms);
+
+  rosbag2_test_common::PublicationManager pub_late;
+  pub_late.setup_publisher(listed_late, message, 1);
+  EXPECT_TRUE(
+    rosbag2_test_common::wait_until_condition(
+      [&]() {return topic_recorded(listed_late);}, 5s));
 }

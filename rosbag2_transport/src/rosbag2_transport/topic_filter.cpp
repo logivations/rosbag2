@@ -103,7 +103,14 @@ TopicFilter::TopicFilter(
 : record_options_(std::move(record_options)),
   allow_unknown_types_(allow_unknown_types),
   node_graph_(node_graph)
-{}
+{
+  if (!record_options_.regex.empty()) {
+    include_regex_ = std::regex(record_options_.regex);
+  }
+  if (!record_options_.exclude_regex.empty()) {
+    exclude_regex_ = std::regex(record_options_.exclude_regex);
+  }
+}
 
 TopicFilter::~TopicFilter() = default;
 
@@ -149,8 +156,7 @@ bool TopicFilter::take_topic(
       {
         // Not match include regex
         if (!record_options_.regex.empty()) {
-          std::regex include_regex(record_options_.regex);
-          if (!std::regex_search(topic_name, include_regex)) {
+          if (!std::regex_search(topic_name, include_regex_)) {
             return false;
           }
         } else {
@@ -168,8 +174,7 @@ bool TopicFilter::take_topic(
     }
 
     if (!record_options_.exclude_regex.empty()) {
-      std::regex exclude_regex(record_options_.exclude_regex);
-      if (std::regex_search(topic_name, exclude_regex)) {
+      if (std::regex_search(topic_name, exclude_regex_)) {
         return false;
       }
     }
@@ -198,8 +203,7 @@ bool TopicFilter::take_topic(
       if (!topic_in_list(topic_name, record_options_.services)) {
         // Not match include regex
         if (!record_options_.regex.empty()) {
-          std::regex include_regex(record_options_.regex);
-          if (!std::regex_search(service_name, include_regex)) {
+          if (!std::regex_search(service_name, include_regex_)) {
             return false;
           }
         } else {
@@ -213,8 +217,7 @@ bool TopicFilter::take_topic(
     }
 
     if (!record_options_.exclude_regex.empty()) {
-      std::regex exclude_regex(record_options_.exclude_regex);
-      if (std::regex_search(service_name, exclude_regex)) {
+      if (std::regex_search(service_name, exclude_regex_)) {
         return false;
       }
     }
@@ -241,6 +244,9 @@ bool TopicFilter::take_topic(
 
 bool TopicFilter::type_is_known(const std::string & topic_name, const std::string & topic_type)
 {
+  if (known_types_.count(topic_type) > 0) {
+    return true;
+  }
   try {
     auto package_name = std::get<0>(rclcpp::extract_type_identifier(topic_type));
     rclcpp::get_typesupport_library_path(package_name, "rosidl_typesupport_cpp");
@@ -254,6 +260,7 @@ bool TopicFilter::type_is_known(const std::string & topic_name, const std::strin
     }
     return false;
   }
+  known_types_.insert(topic_type);
   return true;
 }
 }  // namespace rosbag2_transport
