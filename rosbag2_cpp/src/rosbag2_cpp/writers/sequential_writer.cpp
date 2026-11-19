@@ -443,7 +443,6 @@ void SequentialWriter::write(std::shared_ptr<const rosbag2_storage::SerializedBa
 
   auto converted_msg = get_writeable_message(message);
 
-  metadata_.files.back().message_count++;
   if (storage_options_.max_cache_size == 0u) {
     // If cache size is set to zero, we write to storage directly
     storage_->write(converted_msg);
@@ -550,6 +549,7 @@ void SequentialWriter::write_messages(
     return;
   }
   storage_->write(messages);
+
   if (storage_options_.snapshot_mode) {
     // Update FileInformation about the last file in metadata in case of snapshot mode
     const auto first_msg_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(
@@ -558,8 +558,9 @@ void SequentialWriter::write_messages(
       std::chrono::nanoseconds(messages.back()->recv_timestamp));
     metadata_.files.back().starting_time = first_msg_timestamp;
     metadata_.files.back().duration = last_msg_timestamp - first_msg_timestamp;
-    metadata_.files.back().message_count = messages.size();
   }
+
+  metadata_.files.back().message_count += messages.size();
   metadata_.message_count += messages.size();
   std::lock_guard<std::mutex> lock(topics_info_mutex_);
   for (const auto & msg : messages) {

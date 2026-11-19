@@ -452,7 +452,16 @@ PlayerImpl::PlayerImpl(
     starting_time_, std::chrono::steady_clock::now,
     std::chrono::milliseconds{100}, play_options_.start_paused);
   set_rate(play_options_.rate);
-  topic_qos_profile_overrides_ = play_options_.topic_qos_profile_overrides;
+
+  // Expand topic names for overriding QoS profiles
+  for (const auto & [topic_name, qos] : play_options_.topic_qos_profile_overrides) {
+    auto expanded_topic_name =
+      rclcpp::expand_topic_or_service_name(topic_name,
+                                           owner_->get_name(),
+                                           owner_->get_namespace(),
+                                           false);
+    topic_qos_profile_overrides_.emplace(expanded_topic_name, qos);
+  }
   prepare_publishers();
   configure_play_until_timestamp();
 
@@ -560,6 +569,10 @@ bool PlayerImpl::play()
         } while (rclcpp::ok() && !stop_playback_ && play_options_.loop);
       } catch (const std::exception & e) {
         RCLCPP_ERROR(owner_->get_logger(), "Failed to play: %s", e.what());
+      }
+
+      if (clock_publish_timer_ != nullptr) {
+        clock_publish_timer_->cancel();
       }
 
       // Wait for all published messages to be acknowledged.
