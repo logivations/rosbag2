@@ -391,10 +391,21 @@ TEST_F(SequentialCompressionWriterTest, writer_call_metadata_update_on_bag_split
     compression_mode_from_string(v_intercepted_update_metadata_[0].compression_mode);
   EXPECT_EQ(compression_mode, rosbag2_compression::CompressionMode::MESSAGE);
   EXPECT_EQ(v_intercepted_update_metadata_[0].message_count, 0u);  // On opening first bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[1].files.size(), 1u);   // On closing first bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[2].files.size(), 2u);   // On opening second bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[3].files.size(), 2u);   // On writer destruction
+  // Updates 0, 1: opening and closing the first file; 2, 3: opening the second file and closing
+  // it on destruction. Each bag file only gets its own entry, not the growing file history.
+  const auto & updates = v_intercepted_update_metadata_;
+  for (size_t i = 0; i < updates.size(); i++) {
+    ASSERT_EQ(updates[i].files.size(), 1u) << "update " << i;
+    ASSERT_EQ(updates[i].relative_file_paths.size(), 1u) << "update " << i;
+    EXPECT_EQ(updates[i].files[0].path, updates[i].relative_file_paths[0]) << "update " << i;
+  }
+  EXPECT_EQ(updates[0].files[0].path, updates[1].files[0].path);
+  EXPECT_EQ(updates[2].files[0].path, updates[3].files[0].path);
+  EXPECT_NE(updates[1].files[0].path, updates[2].files[0].path);
   EXPECT_EQ(v_intercepted_update_metadata_[3].message_count, 2 * kNumMessagesToWrite);
+  // metadata.yaml still lists every file
+  EXPECT_EQ(intercepted_write_metadata_.files.size(), 2u);
+  EXPECT_EQ(intercepted_write_metadata_.relative_file_paths.size(), 2u);
 }
 
 TEST_P(SequentialCompressionWriterTest, writer_writes_with_compression_queue_sizes)

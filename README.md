@@ -22,7 +22,7 @@ This README has a lot of information. You may want to jump directly to:
 Rosbag2 packages are available via debian packages, and will already be included with any `-ros-base` installation (which is included within `-desktop`)
 
 ```
-$ export ROS_DISTRO=humble
+$ export ROS_DISTRO=jazzy
 $ sudo apt-get install ros-$ROS_DISTRO-rosbag2
 ```
 
@@ -67,7 +67,7 @@ This auto-discovery of new topics can be disabled by given the command line argu
 To record a set of predefined topics, one can specify them on the command line explicitly.
 
 ```
-$ ros2 bag record <topic1> <topic2> … <topicN>
+$ ros2 bag record --topics <topic1> <topic2> … <topicN>
 ```
 
 The specified topics don't necessarily have to be present at start time.
@@ -169,6 +169,10 @@ $ ros2 bag play -i <bag1> -i <bag2> -i <bag3>
 ```
 
 Messages from all provided bags will be played in order, based on their original recording reception timestamps.
+
+#### Publishing simulation time
+
+When fixed-frequency `/clock` publication is enabled with `--clock` or the `play.clock_publish_frequency` node parameter, `/clock` is published only while a playback session is active. If the Player node remains alive after playback finishes or is stopped, clock publication stops. Starting another playback session restarts it. Pausing playback does not end the session; fixed-frequency updates continue with the paused time.
 
 #### Controlling playback via services
 
