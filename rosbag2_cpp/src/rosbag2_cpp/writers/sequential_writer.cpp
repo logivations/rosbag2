@@ -121,12 +121,12 @@ void SequentialWriter::open(
 
   fs::path storage_path(storage_options.uri);
   if (!fs::is_directory(storage_path)) {
-      bool dir_created = fs::create_directories(storage_path);
-      if (!dir_created) {
-        std::stringstream error;
-        error << "Failed to create bag directory (" << storage_path.string() << ").";
-        throw std::runtime_error{error.str()};
-      }
+    bool dir_created = fs::create_directories(storage_path);
+    if (!dir_created) {
+      std::stringstream error;
+      error << "Failed to create bag directory (" << storage_path.string() << ").";
+      throw std::runtime_error{error.str()};
+    }
   }
 
   storage_options_.uri = format_storage_uri(base_folder_, 0);
