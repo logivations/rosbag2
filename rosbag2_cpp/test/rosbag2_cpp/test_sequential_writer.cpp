@@ -240,6 +240,14 @@ TEST_F(SequentialWriterTest, sequantial_writer_call_metadata_update_on_bag_split
   const std::string test_topic_name = "test_topic";
   const std::string test_topic_type = "test_msgs/BasicTypes";
   EXPECT_CALL(*storage_, update_metadata(_)).Times(4);
+  ON_CALL(*storage_, get_relative_file_path).WillByDefault(
+    [this]() {
+      return fake_storage_uri_;
+    });
+  ON_CALL(*metadata_io_, write_metadata).WillByDefault(
+    [this](const std::string &, const rosbag2_storage::BagMetadata & metadata) {
+      fake_metadata_ = metadata;
+    });
 
   auto sequential_writer = std::make_unique<rosbag2_cpp::writers::SequentialWriter>(
     std::move(storage_factory_), converter_factory_, std::move(metadata_io_));
@@ -267,10 +275,21 @@ TEST_F(SequentialWriterTest, sequantial_writer_call_metadata_update_on_bag_split
   ASSERT_EQ(v_intercepted_update_metadata_.size(), 4u);
   EXPECT_TRUE(v_intercepted_update_metadata_[0].compression_mode.empty());
   EXPECT_EQ(v_intercepted_update_metadata_[0].message_count, 0u);  // On opening first bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[1].files.size(), 1u);   // On closing first bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[2].files.size(), 2u);   // On opening second bag file
-  EXPECT_EQ(v_intercepted_update_metadata_[3].files.size(), 2u);   // On writer destruction
+  // Updates 0, 1: opening and closing the first file; 2, 3: opening the second file and closing
+  // it on destruction. Each bag file only gets its own entry, not the growing file history.
+  const auto & updates = v_intercepted_update_metadata_;
+  for (size_t i = 0; i < updates.size(); i++) {
+    ASSERT_EQ(updates[i].files.size(), 1u) << "update " << i;
+    ASSERT_EQ(updates[i].relative_file_paths.size(), 1u) << "update " << i;
+    EXPECT_EQ(updates[i].files[0].path, updates[i].relative_file_paths[0]) << "update " << i;
+  }
+  EXPECT_EQ(updates[0].files[0].path, updates[1].files[0].path);
+  EXPECT_EQ(updates[2].files[0].path, updates[3].files[0].path);
+  EXPECT_NE(updates[1].files[0].path, updates[2].files[0].path);
   EXPECT_EQ(v_intercepted_update_metadata_[3].message_count, 2 * kNumMessagesToWrite);
+  // metadata.yaml still lists every file
+  EXPECT_EQ(fake_metadata_.files.size(), 2u);
+  EXPECT_EQ(fake_metadata_.relative_file_paths.size(), 2u);
 }
 
 TEST_F(SequentialWriterTest, open_throws_error_if_converter_plugin_does_not_exist) {

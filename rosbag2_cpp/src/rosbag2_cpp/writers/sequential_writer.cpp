@@ -177,7 +177,7 @@ void SequentialWriter::open(
       converter_->add_topic(topic_name, topic_info.topic_metadata.type);
     }
   }
-  storage_->update_metadata(metadata_);
+  update_current_storage_metadata();
   is_open_ = true;
 }
 
@@ -190,7 +190,7 @@ void SequentialWriter::flush_cache_update_metadata_and_close_storage()
   }
   finalize_metadata();
   if (storage_) {
-    storage_->update_metadata(metadata_);
+    update_current_storage_metadata();
     storage_.reset();  // Destroy storage before calling WRITE_SPLIT callback to make sure that
     // bag file was closed before callback call.
   }
@@ -330,7 +330,7 @@ void SequentialWriter::switch_to_next_storage()
     message_cache_->log_dropped();
   }
 
-  storage_->update_metadata(metadata_);
+  update_current_storage_metadata();
   storage_options_.uri = format_storage_uri(
     base_folder_,
     metadata_.relative_file_paths.size());
@@ -352,7 +352,7 @@ void SequentialWriter::switch_to_next_storage()
   metadata_.files.push_back(file_info);
   metadata_.relative_file_paths.push_back(file_info.path);
 
-  storage_->update_metadata(metadata_);
+  update_current_storage_metadata();
   {
     // Re-register all topics since we rolled-over to a new bagfile.
     std::lock_guard<std::mutex> lock(topics_info_mutex_);
@@ -540,6 +540,23 @@ void SequentialWriter::finalize_metadata()
     metadata_.topics_with_message_count.push_back(topic.second);
     metadata_.message_count += topic.second.message_count;
   }
+}
+
+void SequentialWriter::update_current_storage_metadata()
+{
+  // Storage plugins serialize the metadata into the bag file on every call. Pass only the
+  // currently opened file: the full file list grows with every split, and serializing it twice
+  // per split made each split slower the longer the recorder ran, stalling the subscriptions
+  // (https://github.com/ros2/rosbag2/issues/2481). metadata.yaml written on close() still lists
+  // every file. Storage plugins replace the embedded file list with the opened file on read.
+  auto current_file_metadata = metadata_;
+  if (!metadata_.files.empty()) {
+    current_file_metadata.files = {metadata_.files.back()};
+  }
+  if (!metadata_.relative_file_paths.empty()) {
+    current_file_metadata.relative_file_paths = {metadata_.relative_file_paths.back()};
+  }
+  storage_->update_metadata(current_file_metadata);
 }
 
 void SequentialWriter::write_messages(
